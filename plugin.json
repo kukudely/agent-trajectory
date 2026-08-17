@@ -1,5 +1,5 @@
 {
-  "name": "trajectory",
+  "name": "agent-trajectory",
   "version": "0.1.0",
   "description": "Record every session as a replayable trajectory timeline (prompts, tool calls, subagents, turn ends) and view it in a local web UI.",
   "author": "",

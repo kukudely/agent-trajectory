@@ -1,5 +1,5 @@
 {
-  "name": "claude-code-trajectory",
+  "name": "agent-trajectory",
   "version": "0.2.0",
   "description": "Record every Claude Code session as a replayable trajectory timeline (prompts, tool calls, permissions, subagents, token usage) and view it in a local web UI.",
   "type": "module",

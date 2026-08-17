@@ -1,8 +1,8 @@
-# claude-code-trajectory
+# agent-trajectory
 
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![Node](https://img.shields.io/badge/node-%3E%3D22.13-green)](package.json)
-[![CI](https://github.com/<you>/claude-code-trajectory/actions/workflows/ci.yml/badge.svg)](https://github.com/<you>/claude-code-trajectory/actions)
+[![CI](https://github.com/<you>/agent-trajectory/actions/workflows/ci.yml/badge.svg)](https://github.com/<you>/agent-trajectory/actions)
 
 给 Claude Code 的「轨迹」插件：把每次会话记录成可回放的时间线（提示词、工具调用、权限决策、子代理、回合边界、token 用量），并用本地网页查看。
 
@@ -18,7 +18,7 @@
 ## 目录结构
 
 ```
-claude-code-trajectory/
+agent-trajectory/
 ├── plugin.json                 # Claude Code 插件清单（hooks 配置）
 ├── hooks/                      # 9 个 hook 脚本：8 个记录 + 1 个可选策略 hook
 ├── lib/record.mjs              # 共享：stdin 解析、redact、截断、JSONL 追加
@@ -28,7 +28,7 @@ claude-code-trajectory/
 ├── scripts/
 │   ├── demo.mjs                #   生成示例轨迹
 │   ├── render-transcript.mjs   #   直接把官方 transcript 渲染为 HTML
-│   ├── install.mjs             #   安装到 ~/.claude/plugins/trajectory
+│   ├── install.mjs             #   安装到 ~/.claude/plugins/agent-trajectory
 │   ├── collect-stream-json.mjs #   stream-json 采集器（token 用量）
 │   ├── project-sqlite.mjs      #   SQLite 投影与统计
 │   └── smoke.mjs               #   CI 冒烟测试（npm test）
@@ -41,8 +41,8 @@ claude-code-trajectory/
 ## 快速开始
 
 ```sh
-git clone https://github.com/<you>/claude-code-trajectory.git
-cd claude-code-trajectory
+git clone https://github.com/<you>/agent-trajectory.git
+cd agent-trajectory
 
 npm run demo    # 生成示例轨迹（无需真实会话）
 npm run serve   # 打开 http://127.0.0.1:8611
@@ -52,7 +52,7 @@ npm test        # CI 冒烟测试
 ### 接入真实 Claude Code 会话
 
 ```sh
-npm run setup   # 等价 node scripts/install.mjs：安装到 ~/.claude/plugins/trajectory（绝对路径，Windows 最稳）
+npm run setup   # 等价 node scripts/install.mjs：安装到 ~/.claude/plugins/agent-trajectory（绝对路径，Windows 最稳）
 # 重启 claude，/plugin 确认 trajectory 已启用，然后跑一个会话
 # 重新打开查看器，左侧「轨迹会话」里即出现真实轨迹
 ```
@@ -99,7 +99,7 @@ npm run setup   # 等价 node scripts/install.mjs：安装到 ~/.claude/plugins/
 
 纯记录者看不到 deny/ask——决策就是 hook 的退出码。`hooks/policy-tool-use.mjs` 是真正做决策的 PreToolUse hook：匹配 `~/.claude/trajectory-policy.json`（示例见 `trajectory-policy.example.json`）后以 `exit(0)` 放行 / `exit(1)` 询问 / `exit(2)` 拒绝，并把决策追加为 `{type:'permission', decision}` 记录。内部出错时 fail-open（exit 0），策略 bug 不会拖垮 agent。
 
-启用：把 `plugin.json` 的 `PreToolUse` 数组追加一组（`install.mjs` 安装后改 `~/.claude/plugins/trajectory/plugin.json`）：
+启用：把 `plugin.json` 的 `PreToolUse` 数组追加一组（`install.mjs` 安装后改 `~/.claude/plugins/agent-trajectory/plugin.json`）：
 
 ```json
 "PreToolUse": [
@@ -157,4 +157,4 @@ node scripts/project-sqlite.mjs --sql "SELECT session_id, COUNT(*) FROM records 
 
 ## 开源协议
 
-[MIT](LICENSE) © 2026 claude-code-trajectory contributors
+[MIT](LICENSE) © 2026 agent-trajectory contributors

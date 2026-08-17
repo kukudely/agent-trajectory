@@ -1,11 +1,11 @@
 # Contributing
 
-感谢你考虑为 claude-code-trajectory 贡献代码。
+感谢你考虑为 agent-trajectory 贡献代码。
 
 ## 开发流程
 
 1. Fork 并克隆仓库
-2. 改代码请改**源目录**（仓库根），不要直接改安装副本 `~/.claude/plugins/trajectory`
+2. 改代码请改**源目录**（仓库根），不要直接改安装副本 `~/.claude/plugins/agent-trajectory`
 3. 本地验证：
    - `npm test`：CI 冒烟测试（demo 数据 → SQLite 投影 → viewer API），无需真实 Claude Code 会话
    - `npm run demo` + `npm run serve`：人工查看时间线效果

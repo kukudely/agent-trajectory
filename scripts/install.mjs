@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Copy the plugin into ~/.claude/plugins/trajectory and rewrite hook commands
+ * Copy the plugin into ~/.claude/plugins/agent-trajectory and rewrite hook commands
  * to absolute paths. This sidesteps cases where ${CLAUDE_PLUGIN_ROOT} is not
  * injected (some versions/platforms, notably SessionStart — see
  * anthropics/claude-code#27145) and is the most reliable form on Windows.
@@ -12,7 +12,7 @@ import { join } from 'node:path'
 import { homedir } from 'node:os'
 import { PLUGIN_ROOT } from '../lib/record.mjs'
 
-const DEST = join(homedir(), '.claude', 'plugins', 'trajectory')
+const DEST = join(homedir(), '.claude', 'plugins', 'agent-trajectory')
 mkdirSync(DEST, { recursive: true })
 
 for (const sub of ['hooks', 'lib', 'viewer', 'scripts']) {
