@@ -1,0 +1,9 @@
+{
+  "deny": [
+    { "tool": "Bash", "inputContains": ["rm -rf", "git push --force"] }
+  ],
+  "ask": [
+    { "tool": "Write", "inputContains": [".env", "credentials"] },
+    { "tool": "Edit", "inputContains": ["secret"] }
+  ]
+}

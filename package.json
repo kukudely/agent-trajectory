@@ -1,0 +1,45 @@
+{
+  "name": "claude-code-trajectory",
+  "version": "0.2.0",
+  "description": "Record every Claude Code session as a replayable trajectory timeline (prompts, tool calls, permissions, subagents, token usage) and view it in a local web UI.",
+  "type": "module",
+  "license": "MIT",
+  "engines": {
+    "node": ">=22.13"
+  },
+  "keywords": [
+    "claude-code",
+    "claude",
+    "trajectory",
+    "telemetry",
+    "hooks",
+    "session",
+    "trace",
+    "claude-code-plugin"
+  ],
+  "bin": {
+    "trajectory-viewer": "viewer/serve.mjs",
+    "trajectory-demo": "scripts/demo.mjs",
+    "trajectory-install": "scripts/install.mjs",
+    "trajectory-project": "scripts/project-sqlite.mjs"
+  },
+  "scripts": {
+    "demo": "node scripts/demo.mjs",
+    "serve": "node viewer/serve.mjs",
+    "setup": "node scripts/install.mjs",
+    "render": "node scripts/render-transcript.mjs",
+    "collect": "node scripts/collect-stream-json.mjs",
+    "project": "node scripts/project-sqlite.mjs --report",
+    "test": "node scripts/smoke.mjs"
+  },
+  "files": [
+    "hooks",
+    "lib",
+    "viewer",
+    "scripts",
+    "plugin.json",
+    "trajectory-policy.example.json",
+    "README.md",
+    "LICENSE"
+  ]
+}

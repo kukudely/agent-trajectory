@@ -1,0 +1,478 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Trajectory Viewer</title>
+<style>
+:root { --bg:#f6f7f9; --card:#fff; --border:#e4e6eb; --text:#1f2328; --muted:#6b7280;
+  --user:#2563eb; --assistant:#111827; --tool:#7c3aed; --perm:#b45309; --sub:#0d9488; --end:#9ca3af; }
+* { box-sizing: border-box; }
+body { margin:0; font:14px/1.6 system-ui, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif; background:var(--bg); color:var(--text); }
+header { position:sticky; top:0; z-index:5; display:flex; align-items:center; gap:16px; padding:10px 20px; background:var(--card); border-bottom:1px solid var(--border); }
+header h1 { font-size:16px; margin:0; }
+header label { font-size:13px; color:var(--muted); display:flex; align-items:center; gap:6px; }
+#search { margin-left:auto; width:280px; padding:6px 10px; border:1px solid var(--border); border-radius:6px; }
+button { padding:6px 12px; border:1px solid var(--border); border-radius:6px; background:#fff; cursor:pointer; }
+button:hover { background:#f0f1f3; }
+#layout { display:flex; height:calc(100vh - 51px); }
+aside { width:330px; min-width:330px; overflow:auto; border-right:1px solid var(--border); background:var(--card); padding:12px; }
+aside h2 { font-size:12px; text-transform:uppercase; color:var(--muted); margin:16px 4px 6px; letter-spacing:.5px; }
+aside ul { list-style:none; margin:0; padding:0; }
+aside li { padding:8px 10px; border-radius:6px; cursor:pointer; border:1px solid transparent; }
+aside li:hover { background:#f0f1f3; }
+aside li.active { border-color:var(--tool); background:#f5f0ff; }
+aside li .t { font-size:12px; color:var(--muted); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+aside li .hint { font-size:12px; color:var(--muted); cursor:default; }
+main { flex:1; overflow:auto; padding:20px; }
+.empty { color:var(--muted); text-align:center; margin-top:80px; }
+.card { background:var(--card); border:1px solid var(--border); border-left:3px solid var(--end); border-radius:8px; padding:10px 14px; margin:10px 0; max-width:960px; }
+.card.user { border-left-color:var(--user); }
+.card.assistant { border-left-color:var(--assistant); }
+.card.tool { border-left-color:var(--tool); }
+.card.permission { border-left-color:var(--perm); }
+.card.subagent-start, .card.subagent-end { border-left-color:var(--sub); }
+.card.system { background:#fafafa; color:var(--muted); }
+.card .head { display:flex; align-items:center; gap:8px; margin-bottom:6px; font-size:12px; color:var(--muted); flex-wrap:wrap; }
+.badge { font-size:11px; padding:1px 8px; border-radius:999px; color:#fff; white-space:nowrap; }
+.badge.user { background:var(--user); } .badge.assistant { background:var(--assistant); }
+.badge.tool { background:var(--tool); } .badge.perm { background:var(--perm); }
+.badge.sub { background:var(--sub); } .badge.end { background:var(--end); }
+.card .body { white-space:pre-wrap; word-break:break-word; }
+code { font-family:ui-monospace, Consolas, "Cascadia Code", monospace; font-size:12px; background:#f0f1f3; padding:1px 5px; border-radius:4px; }
+pre { background:#f6f8fa; border:1px solid var(--border); border-radius:6px; padding:8px; overflow:auto; max-height:340px; font:12px/1.5 ui-monospace, Consolas, "Cascadia Code", monospace; margin:6px 0 0; white-space:pre-wrap; word-break:break-word; }
+details { margin-top:6px; }
+summary { cursor:pointer; color:var(--muted); font-size:12px; user-select:none; }
+.turn-end { text-align:center; color:var(--end); font-size:12px; margin:18px 0; border-top:1px dashed var(--border); padding-top:10px; letter-spacing:2px; }
+.toolbar { display:flex; gap:8px; margin-bottom:6px; }
+.toolbar input { flex:1; padding:6px 10px; border:1px solid var(--border); border-radius:6px; min-width:0; }
+#statsPanel { margin:4px 0 8px; border:1px solid var(--border); border-radius:6px; padding:6px 10px; }
+#statsPanel table { border-collapse:collapse; width:100%; font-size:12px; }
+#statsPanel th, #statsPanel td { border-bottom:1px solid var(--border); padding:2px 4px; text-align:left; }
+#searchResults { list-style:none; margin:4px 0 8px; padding:0; max-height:220px; overflow:auto; }
+.extra-title { margin-top:24px; color:var(--muted); font-weight:600; }
+.perm-text { color:var(--perm); font-size:12px; }
+.meta { margin-left:auto; color:var(--muted); font-size:12px; }
+.incomplete { color:var(--perm); font-size:12px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Trajectory</h1>
+  <label><input type="checkbox" id="merge" checked /> 合并官方 transcript</label>
+  <input id="search" placeholder="过滤时间线…" />
+  <button id="refresh">刷新</button>
+</header>
+<div id="layout">
+  <aside>
+    <div class="toolbar">
+      <input id="globalSearch" placeholder="全局检索（需 SQLite 投影）…" />
+      <button id="statsBtn" title="基于 SQLite 投影的统计">统计</button>
+    </div>
+    <details id="statsPanel" hidden>
+      <summary>会话统计</summary>
+      <div id="statsBody"></div>
+    </details>
+    <ul id="searchResults" hidden></ul>
+    <h2>轨迹会话（hooks / stream-json 记录）</h2>
+    <ul id="sessionList"></ul>
+    <h2>官方 transcript（~/.claude/projects）</h2>
+    <ul id="transcriptList"></ul>
+  </aside>
+  <main id="timeline"></main>
+</div>
+<script>
+const $ = (id) => document.getElementById(id)
+const state = { sessions: [], transcripts: [], current: null, records: null, transcript: null, merge: true, search: '' }
+
+const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]))
+const fmtTs = (ts) => ts ? new Date(ts).toLocaleString('zh-CN', { hour12: false }) : ''
+const fmtSize = (n) => n > 1048576 ? (n / 1048576).toFixed(1) + ' MB' : n > 1024 ? (n / 1024).toFixed(1) + ' KB' : n + ' B'
+const div = (cls, html) => { const d = document.createElement('div'); d.className = cls; if (html != null) d.innerHTML = html; return d }
+
+function jsonPre(v) {
+  if (v == null) return ''
+  let s = v
+  if (typeof s === 'string') { try { s = JSON.parse(s) } catch (e) { return esc(s) } }
+  try { return esc(JSON.stringify(s, null, 2)) } catch (e) { return esc(String(v)) }
+}
+function textOf(content) {
+  if (typeof content === 'string') return content
+  if (Array.isArray(content)) return content.map((b) => (b && b.text != null ? b.text : '')).join('\n')
+  return ''
+}
+// Official CC transcripts nest payload under `message.content`; stream-json is
+// flat at `line.content`. Support both so the merge view works on either source.
+const msgContent = (line) => (line && line.message && line.message.content != null ? line.message.content : line.content)
+
+async function api(path) {
+  const r = await fetch(path)
+  if (!r.ok) throw new Error((await r.text()) || String(r.status))
+  return r.json()
+}
+
+function select(kind, key) {
+  const lists = [['sessionList', 'trajectory'], ['transcriptList', 'transcript']]
+  for (const [listId, k] of lists) {
+    for (const li of $(listId).children) {
+      li.classList.toggle('active', k === kind && li.dataset.key === String(key))
+    }
+  }
+}
+
+async function loadSessions() {
+  try {
+    const [s, t] = await Promise.all([api('/api/sessions'), api('/api/transcripts')])
+    state.sessions = s
+    state.transcripts = t
+    const sl = $('sessionList')
+    sl.innerHTML = ''
+    if (!s.length) sl.innerHTML = '<li class="hint">暂无轨迹。先运行 <code>node scripts/demo.mjs</code>，或用 hooks 跑一个真实会话。</li>'
+    for (const it of s) {
+      const li = document.createElement('li')
+      li.dataset.key = it.id
+      li.innerHTML = '<div>' + esc(it.id) + '</div><div class="t">' + fmtTs(it.mtimeMs) + ' · ' + fmtSize(it.size) + '</div>'
+      li.onclick = () => { select('trajectory', it.id); openTrajectory(it.id) }
+      sl.appendChild(li)
+    }
+    const tl = $('transcriptList')
+    tl.innerHTML = ''
+    if (!t.length) tl.innerHTML = '<li class="hint">未找到 transcript 文件。</li>'
+    for (const it of t) {
+      const li = document.createElement('li')
+      li.dataset.key = it.path
+      li.innerHTML = '<div>' + esc(it.rel.split('\\').pop()) + '</div><div class="t">' + esc(it.rel) + ' · ' + fmtTs(it.mtimeMs) + '</div>'
+      li.onclick = () => { select('transcript', it.path); openTranscript(it.path) }
+      tl.appendChild(li)
+    }
+  } catch (e) {
+    console.error('loadSessions failed', e)
+  }
+}
+
+async function openTrajectory(id) {
+  state.current = { kind: 'trajectory', id }
+  try {
+    const data = await api('/api/trajectory/' + encodeURIComponent(id))
+    state.records = data.records
+  } catch (e) {
+    state.records = null
+  }
+  state.transcript = null
+  if (state.merge && state.records) {
+    const tp = (state.records.find((r) => r.transcriptPath) || {}).transcriptPath
+    if (tp) {
+      try {
+        state.transcript = (await api('/api/transcript?path=' + encodeURIComponent(tp))).lines
+      } catch (e) {
+        state.transcript = null
+      }
+    }
+  }
+  render()
+}
+
+async function openTranscript(path) {
+  state.current = { kind: 'transcript', path }
+  state.records = null
+  try {
+    state.transcript = (await api('/api/transcript?path=' + encodeURIComponent(path))).lines
+  } catch (e) {
+    state.transcript = null
+  }
+  render()
+}
+
+function buildPlain(records) {
+  const hasTool = new Set(records.filter((r) => r.type === 'tool' && r.toolUseId).map((r) => r.toolUseId))
+  const startByUse = new Map(records.filter((r) => r.type === 'tool-start' && r.toolUseId).map((r) => [r.toolUseId, { ts: r.ts, tool: r.tool }]))
+  const items = []
+  for (const r of records) {
+    if (r.type === 'tool-start') {
+      if (hasTool.has(r.toolUseId)) continue
+      items.push({ kind: 'tool', tool: r.tool, toolUseId: r.toolUseId, input: r.input, result: null, startTs: r.ts, incomplete: true, ts: r.ts })
+    } else if (r.type === 'tool') {
+      const st = startByUse.get(r.toolUseId)
+      items.push({ kind: 'tool', tool: r.tool || (st && st.tool), toolUseId: r.toolUseId, input: r.input, result: r.result, startTs: st && st.ts, durationMs: st ? (r.ts - st.ts) : null, ts: r.ts })
+    } else if (r.type === 'assistant') {
+      items.push({ kind: 'assistant', text: r.text, ts: r.ts })
+    } else if (r.type === 'usage') {
+      items.push({ kind: 'usage', rec: r, ts: r.ts })
+    } else if (r.type === 'permission') {
+      items.push({ kind: 'permission', tool: r.tool, decision: r.decision, reason: r.reason, ts: r.ts })
+    } else if (r.type === 'subagent-start' || r.type === 'subagent-end') {
+      items.push({ kind: r.type, rec: r, ts: r.ts })
+    } else if (r.type === 'turn-end') {
+      items.push({ kind: 'turn-end', ts: r.ts })
+    } else if (r.type === 'session-end') {
+      items.push({ kind: 'session-end', rec: r, ts: r.ts })
+    } else if (r.type === 'session') {
+      items.push({ kind: 'session', rec: r, ts: r.ts })
+    } else if (r.type === 'user') {
+      items.push({ kind: 'user', text: r.text, ts: r.ts })
+    } else {
+      items.push({ kind: 'other', rec: r, ts: r.ts })
+    }
+  }
+  return items
+}
+
+function buildSpine(lines, records) {
+  const byUse = new Map()
+  for (const r of records || []) {
+    if (!r.toolUseId) continue
+    const slot = byUse.has(r.toolUseId) ? byUse.get(r.toolUseId) : {}
+    Object.assign(slot, r)
+    if (r.type === 'tool') slot.toolTs = r.ts
+    byUse.set(r.toolUseId, slot)
+  }
+  const items = []
+  const extra = (records || []).filter((r) => !r.toolUseId)
+  let lastTool = null
+  for (const line of lines) {
+    if (line.type === 'system') {
+      if (line.subtype === 'init') {
+        const c = msgContent(line)
+        items.push({ kind: 'system', text: Array.isArray(c) ? c.join('') : (typeof c === 'string' ? c : '') })
+      }
+    } else if (line.type === 'user') {
+      const c = msgContent(line)
+      // CC wraps tool_result as a user message; backfill the tool card instead
+      // of rendering an empty "你" bubble.
+      const block = Array.isArray(c) ? c.find((b) => b && b.type === 'tool_result') : null
+      if (block) {
+        if (lastTool && lastTool.toolUseId === block.tool_use_id) {
+          lastTool.result = block.content
+        } else {
+          items.push({ kind: 'tool-result', text: textOf(block.content), isError: !!block.is_error })
+        }
+      } else {
+        items.push({ kind: 'user', text: textOf(c) })
+      }
+    } else if (line.type === 'assistant') {
+      const blocks = Array.isArray(msgContent(line)) ? msgContent(line) : []
+      const text = blocks.filter((b) => b.type === 'text').map((b) => b.text ?? '').join('\n')
+      if (text.trim()) items.push({ kind: 'assistant', text })
+      for (const b of blocks.filter((b) => b.type === 'tool_use')) {
+        const t = byUse.get(b.id) || {}
+        const item = { kind: 'tool', tool: b.name, toolUseId: b.id, input: b.input, result: null, startTs: t.ts, durationMs: t.ts && t.toolTs ? (t.toolTs - t.ts) : null, transcript: true }
+        items.push(item)
+        lastTool = item
+      }
+    } else if (line.type === 'tool_use') {
+      const t = byUse.get(line.id) || {}
+      const item = { kind: 'tool', tool: line.name, toolUseId: line.id, input: line.input, result: null, startTs: t.ts, durationMs: t.ts && t.toolTs ? (t.toolTs - t.ts) : null, transcript: true }
+      items.push(item)
+      lastTool = item
+    } else if (line.type === 'tool_result') {
+      const c = msgContent(line)
+      const block = Array.isArray(c) ? c.find((b) => b && b.type === 'tool_result') : null
+      const tuid = block ? block.tool_use_id : line.tool_use_id
+      const tcontent = block ? block.content : line.content
+      const isError = block ? !!block.is_error : !!line.is_error
+      if (lastTool && lastTool.toolUseId === tuid) {
+        lastTool.result = tcontent
+      } else {
+        items.push({ kind: 'tool-result', text: textOf(tcontent), isError })
+      }
+    } else if (line.type === 'summary') {
+      items.push({ kind: 'system', text: '摘要：' + String(line.summary ?? '').slice(0, 400) })
+    }
+  }
+  items.push({ kind: 'extra', records: extra })
+  return items
+}
+
+function buildItems() {
+  if (state.transcript && state.transcript.length && state.records) return buildSpine(state.transcript, state.records)
+  if (state.transcript && state.transcript.length) return buildSpine(state.transcript, [])
+  return buildPlain(state.records || [])
+}
+
+function renderItem(it) {
+  const box = div('card ' + it.kind)
+  const head = div('head')
+  const meta = it.ts ? fmtTs(it.ts) : ''
+  switch (it.kind) {
+    case 'session':
+      head.innerHTML = '<span class="badge end">会话</span><code>' + esc(it.rec.cwd || '') + '</code><span class="meta">' + esc(it.rec.model || '') + (it.rec.source ? ' · ' + esc(it.rec.source) : '') + '</span>'
+      box.appendChild(head)
+      if (it.rec.transcriptPath) box.appendChild(div('body', 'transcript: ' + esc(it.rec.transcriptPath)))
+      return box
+    case 'user':
+      head.innerHTML = '<span class="badge user">你</span><span class="meta">' + meta + '</span>'
+      box.appendChild(head)
+      box.appendChild(div('body', esc(it.text)))
+      return box
+    case 'assistant':
+      head.innerHTML = '<span class="badge assistant">Claude</span><span class="meta">' + meta + '</span>'
+      box.appendChild(head)
+      box.appendChild(div('body', esc(it.text)))
+      return box
+    case 'tool':
+      head.innerHTML = '<span class="badge tool">工具</span><code>' + esc(it.tool) + '</code><span class="meta">' + esc(it.toolUseId || '') + (it.startTs ? ' · ' + fmtTs(it.startTs) : '') + (it.durationMs != null ? ' · ' + it.durationMs + ' ms' : '') + '</span>'
+      box.appendChild(head)
+      if (it.incomplete) box.appendChild(div('incomplete', '（工具调用未完成或被中断）'))
+      if (it.input != null) {
+        const det = document.createElement('details')
+        det.open = true
+        det.innerHTML = '<summary>输入</summary>'
+        const pre = document.createElement('pre')
+        pre.textContent = jsonPre(it.input)
+        det.appendChild(pre)
+        box.appendChild(det)
+      }
+      if (it.result != null) {
+        const det = document.createElement('details')
+        det.open = true
+        det.innerHTML = '<summary>结果</summary>'
+        const pre = document.createElement('pre')
+        pre.textContent = jsonPre(it.result)
+        det.appendChild(pre)
+        box.appendChild(det)
+      }
+      return box
+    case 'tool-result':
+      head.innerHTML = '<span class="badge tool">结果</span><span class="meta">' + (it.isError ? 'error' : '') + '</span>'
+      box.appendChild(head)
+      box.appendChild(div('body', esc(it.text)))
+      return box
+    case 'permission':
+      head.innerHTML = '<span class="badge perm">权限</span><code>' + esc(it.tool || '') + '</code><span class="meta">' + meta + '</span>'
+      box.appendChild(head)
+      box.appendChild(div('perm-text', '决策：' + esc(it.decision) + (it.reason ? ' — ' + esc(it.reason) : '')))
+      return box
+    case 'usage':
+      head.innerHTML = '<span class="badge tool">用量</span><span class="meta">' + meta + (it.rec.kind === 'cumulative' ? ' · 累计' : '') + '</span>'
+      box.appendChild(head)
+      box.appendChild(div('body', '输入 ' + (it.rec.inputTokens ?? 0) + ' · 输出 ' + (it.rec.outputTokens ?? 0) +
+        (it.rec.cacheReadInputTokens ? ' · cache读 ' + it.rec.cacheReadInputTokens : '') +
+        (it.rec.cacheCreationInputTokens ? ' · cache写 ' + it.rec.cacheCreationInputTokens : '')))
+      return box
+    case 'subagent-start':
+    case 'subagent-end':
+      head.innerHTML = '<span class="badge sub">' + (it.kind === 'subagent-start' ? '子代理启动' : '子代理结束') + '</span><span class="meta">' + meta + '</span>'
+      box.appendChild(head)
+      if (it.rec.agentTranscriptPath) box.appendChild(div('body', 'transcript: ' + esc(it.rec.agentTranscriptPath)))
+      if (it.rec.lastAssistantMessage) box.appendChild(div('body', esc(it.rec.lastAssistantMessage)))
+      return box
+    case 'turn-end':
+      box.className = 'turn-end'
+      box.textContent = '— 回合结束 —'
+      return box
+    case 'session-end':
+      head.innerHTML = '<span class="badge end">会话结束</span><span class="meta">' + meta + '</span>'
+      box.appendChild(head)
+      return box
+    case 'system':
+      head.innerHTML = '<span class="badge end">系统</span>'
+      box.appendChild(head)
+      if (it.text) box.appendChild(div('body', esc(it.text).slice(0, 800)))
+      return box
+    case 'extra': {
+      const wrap = div('')
+      if (it.records && it.records.length) {
+        wrap.appendChild(div('extra-title', '附加轨迹事件（未匹配 transcript）'))
+        for (const r of it.records) {
+          const item = buildPlain([r])[0] || { kind: 'other', rec: r, ts: r.ts }
+          const el = renderItem(item)
+          if (el) wrap.appendChild(el)
+        }
+      }
+      return wrap
+    }
+    default:
+      return null
+  }
+}
+
+function itemText(it) {
+  try {
+    return JSON.stringify(it)
+  } catch (e) {
+    return ''
+  }
+}
+
+function render() {
+  const tl = $('timeline')
+  tl.innerHTML = ''
+  if (!state.current) {
+    tl.appendChild(div('empty', '从左侧选择一个会话；或先运行 <code>node scripts/demo.mjs</code> 生成示例数据。'))
+    return
+  }
+  const items = buildItems()
+  const q = state.search.trim().toLowerCase()
+  const frag = document.createDocumentFragment()
+  let shown = 0
+  for (const it of items) {
+    if (q && !itemText(it).toLowerCase().includes(q)) continue
+    const el = renderItem(it)
+    if (el) {
+      frag.appendChild(el)
+      shown++
+    }
+  }
+  if (!shown) tl.appendChild(div('empty', '没有匹配的记录。'))
+  else tl.appendChild(frag)
+}
+
+let searchTimer = null
+$('globalSearch').addEventListener('input', (e) => {
+  clearTimeout(searchTimer)
+  searchTimer = setTimeout(() => globalSearch(e.target.value), 250)
+})
+async function globalSearch(q) {
+  const ul = $('searchResults')
+  if (!q.trim()) { ul.hidden = true; ul.innerHTML = ''; return }
+  try {
+    const data = await api('/api/search?q=' + encodeURIComponent(q))
+    ul.hidden = false
+    if (data.error) { ul.innerHTML = '<li class="hint">' + esc(data.error) + '</li>'; return }
+    ul.innerHTML = ''
+    if (!data.rows.length) { ul.innerHTML = '<li class="hint">无匹配</li>'; return }
+    for (const row of data.rows) {
+      const li = document.createElement('li')
+      li.innerHTML = '<div><span class="badge end">' + esc(row.type || '?') + '</span> <code>' + esc(row.tool || String(row.sessionId).slice(0, 16)) + '</code></div><div class="t">' + esc(String(row.snippet || '').slice(0, 90)) + '</div>'
+      li.onclick = () => { openTrajectory(row.sessionId) }
+      ul.appendChild(li)
+    }
+  } catch (e) {
+    console.error('globalSearch failed', e)
+  }
+}
+
+$('statsBtn').addEventListener('click', async () => {
+  const panel = $('statsPanel')
+  const body = $('statsBody')
+  panel.hidden = false
+  panel.open = true
+  try {
+    const data = await api('/api/stats')
+    if (data.error) { body.innerHTML = '<div class="hint">' + esc(data.error) + '</div>'; return }
+    let h = '<table><tr><th>会话</th><th>记录</th><th>时长(s)</th><th>提示</th><th>工具</th><th>拒绝</th><th>子代理</th></tr>'
+    for (const s of data.sessions) {
+      h += '<tr><td><code>' + esc(String(s.id).slice(0, 14)) + '</code></td><td>' + s.records + '</td><td>' + Math.round(s.duration_s || 0) + '</td><td>' + (s.prompts || 0) + '</td><td>' + (s.tools || 0) + '</td><td>' + (s.denials || 0) + '</td><td>' + (s.subagents || 0) + '</td></tr>'
+    }
+    h += '</table>'
+    if (data.topTools && data.topTools.length) {
+      h += '<div class="extra-title">高频工具</div>'
+      for (const t of data.topTools) h += '<div class="t">' + esc(t.tool) + ' × ' + t.calls + '</div>'
+    }
+    body.innerHTML = h
+  } catch (e) {
+    body.innerHTML = '<div class="hint">加载失败：' + esc(String(e)) + '</div>'
+  }
+})
+
+$('search').addEventListener('input', (e) => { state.search = e.target.value; render() })
+$('merge').addEventListener('change', (e) => {
+  state.merge = e.target.checked
+  if (state.current && state.current.kind === 'trajectory') openTrajectory(state.current.id)
+  else render()
+})
+$('refresh').addEventListener('click', loadSessions)
+loadSessions()
+</script>
+</body>
+</html>

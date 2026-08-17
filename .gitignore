@@ -1,0 +1,13 @@
+# runtime / generated
+.demo-data/
+trajectory.db
+*.log
+
+# deps & os noise
+node_modules/
+.DS_Store
+Thumbs.db
+
+# editor
+.vscode/
+.idea/
