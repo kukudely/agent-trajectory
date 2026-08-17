@@ -2,7 +2,7 @@
 
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![Node](https://img.shields.io/badge/node-%3E%3D22.13-green)](package.json)
-[![CI](https://github.com/<you>/agent-trajectory/actions/workflows/ci.yml/badge.svg)](https://github.com/<you>/agent-trajectory/actions)
+[![CI](https://github.com/kukudely/agent-trajectory/actions/workflows/ci.yml/badge.svg)](https://github.com/kukudely/agent-trajectory/actions)
 
 给 Claude Code 的「轨迹」插件：把每次会话记录成可回放的时间线（提示词、工具调用、权限决策、子代理、回合边界、token 用量），并用本地网页查看。
 
@@ -41,7 +41,7 @@ agent-trajectory/
 ## 快速开始
 
 ```sh
-git clone https://github.com/<you>/agent-trajectory.git
+git clone https://github.com/kukudely/agent-trajectory.git
 cd agent-trajectory
 
 npm run demo    # 生成示例轨迹（无需真实会话）
