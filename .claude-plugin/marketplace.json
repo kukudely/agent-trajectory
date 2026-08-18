@@ -9,7 +9,7 @@
       "name": "agent-trajectory",
       "source": "./",
       "description": "Record Claude Code sessions as replayable trajectories and inspect them in a local web viewer.",
-      "version": "0.4.0",
+      "version": "0.4.1",
       "homepage": "https://github.com/kukudely/agent-trajectory",
       "repository": "https://github.com/kukudely/agent-trajectory",
       "license": "MIT",

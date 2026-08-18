@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // Self-contained smoke test for CI (npm test): demo data -> SQLite projection ->
 // viewer server -> API probes. No Claude Code or external services required.
-import { mkdtempSync, rmSync, appendFileSync, writeFileSync, existsSync } from 'node:fs'
+import { mkdtempSync, rmSync, appendFileSync, writeFileSync, existsSync, symlinkSync, readFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, dirname, resolve } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
@@ -57,6 +57,13 @@ try {
   ] }] }, untouched: true })
   assert(migrated.removed === 1, 'legacy hook migration did not remove the old plugin path')
   assert(migrated.settings.hooks.Stop[0].hooks[0].command === 'node keep-me.mjs' && migrated.settings.untouched, 'legacy hook migration changed unrelated settings')
+  // npm/NVM may invoke the bin through a directory junction while ESM resolves
+  // import.meta.url to the real target. The CLI must still recognize itself as main.
+  const cliTargetDir = join(ROOT, 'dist', 'scripts')
+  const cliLinkDir = join(tmp, 'cli-link')
+  symlinkSync(cliTargetDir, cliLinkDir, process.platform === 'win32' ? 'junction' : 'dir')
+  const linkedVersion = execFileSync(process.execPath, [join(cliLinkDir, 'cli.js'), '--version'], { encoding: 'utf8' }).trim()
+  assert(linkedVersion === JSON.parse(readFileSync(join(ROOT, 'package.json'), 'utf8')).version, 'CLI did not run through a symlink or junction')
   execFileSync(process.execPath, [join(ROOT, 'dist/scripts/check-release.js')], { stdio: 'inherit' })
   generateDemo('demo')
   const demoRecords = loadTrajectory('demo')

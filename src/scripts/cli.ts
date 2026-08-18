@@ -6,6 +6,7 @@ import {
   mkdirSync,
   openSync,
   readFileSync,
+  realpathSync,
   unlinkSync,
   writeFileSync,
 } from 'node:fs'
@@ -385,8 +386,17 @@ export async function main(args = process.argv.slice(2)) {
   fail(`unknown command: ${command}\nRun "trajectory --help" for usage.`)
 }
 
-const invokedPath = process.argv[1] ? resolve(process.argv[1]) : ''
-if (invokedPath === resolve(fileURLToPath(import.meta.url))) {
+export function sameExecutablePath(left: string, right: string) {
+  const canonical = (path: string) => {
+    let value
+    try { value = realpathSync.native(path) } catch { value = resolve(path) }
+    return process.platform === 'win32' ? value.toLowerCase() : value
+  }
+  return canonical(left) === canonical(right)
+}
+
+const invokedPath = process.argv[1] || ''
+if (invokedPath && sameExecutablePath(invokedPath, fileURLToPath(import.meta.url))) {
   main().catch((error) => {
     console.error(`trajectory: ${error.message}`)
     process.exitCode = 1
