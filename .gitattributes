@@ -1,4 +1,5 @@
 * text=auto
+*.ts text eol=lf linguist-language=TypeScript
 *.mjs text eol=lf
 *.js text eol=lf
 *.json text eol=lf
