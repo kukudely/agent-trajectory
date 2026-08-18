@@ -13,8 +13,8 @@
  */
 import { createServer } from 'node:http'
 import type { DatabaseSync } from 'node:sqlite'
-import { readFileSync, existsSync, readdirSync, statSync } from 'node:fs'
-import { dirname, join, extname, resolve, relative, sep } from 'node:path'
+import { readFileSync, existsSync, readdirSync, statSync, openSync, readSync, closeSync } from 'node:fs'
+import { basename, dirname, join, extname, resolve, relative, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import {
   TRAJECTORY_ROOT,
@@ -52,19 +52,79 @@ function sendText(res, status, body, type = 'text/plain; charset=utf-8') {
   res.end(body)
 }
 
-function listTrajectorySessions() {
+type TranscriptEntry = { path: string; rel: string; mtimeMs: number; size: number }
+const titleCache = new Map<string, { mtimeMs: number; size: number; title: string | null }>()
+
+function compactTitle(value: unknown, max = 80) {
+  const text = String(value ?? '').replace(/\s+/g, ' ').trim()
+  if (!text) return null
+  return text.length > max ? text.slice(0, max - 1) + '…' : text
+}
+
+function contentText(content: any) {
+  if (typeof content === 'string') return content
+  if (!Array.isArray(content)) return ''
+  return content.filter((block) => block?.type === 'text' || block?.text != null).map((block) => block.text ?? '').join(' ')
+}
+
+function readJsonlWindow(path: string, start: number, length: number) {
+  if (length <= 0) return []
+  const fd = openSync(path, 'r')
+  try {
+    const buffer = Buffer.alloc(length)
+    const bytes = readSync(fd, buffer, 0, length, start)
+    return buffer.subarray(0, bytes).toString('utf8').split('\n').flatMap((line) => {
+      try { return line.trim() ? [JSON.parse(line)] : [] } catch { return [] }
+    })
+  } finally {
+    closeSync(fd)
+  }
+}
+
+function transcriptTitle(path: string, stat: { mtimeMs: number; size: number }) {
+  const cached = titleCache.get(path)
+  if (cached?.mtimeMs === stat.mtimeMs && cached.size === stat.size) return cached.title
+  const tailSize = Math.min(stat.size, 256 * 1024)
+  const tail = readJsonlWindow(path, stat.size - tailSize, tailSize)
+  const titleRecord = tail.findLast((row) => row.type === 'custom-title' || row.type === 'ai-title')
+  let title = compactTitle(titleRecord?.customTitle ?? titleRecord?.aiTitle)
+  if (!title) {
+    const head = readJsonlWindow(path, 0, Math.min(stat.size, 128 * 1024))
+    const user = head.find((row) => row.type === 'user' && (row.origin?.kind === 'human' || row.userType === 'external' || row.promptSource === 'typed' || !row.origin))
+    title = compactTitle(contentText(user?.message?.content ?? user?.content))
+  }
+  titleCache.set(path, { ...stat, title })
+  return title
+}
+
+function trajectoryFallback(path: string, stat: { size: number }) {
+  const rows = readJsonlWindow(path, 0, Math.min(stat.size, 128 * 1024))
+  const user = rows.find((row) => row.type === 'user' && row.text)
+  const prompt = compactTitle(user?.text)
+  if (prompt) return prompt
+  const cwd = rows.find((row) => row.cwd)?.cwd
+  if (cwd) return compactTitle(basename(String(cwd)))
+  if (rows.length && rows.every((row) => row.type === 'session-end')) return '空会话（仅结束记录）'
+  return rows.length ? '未命名会话' : null
+}
+
+function listTrajectorySessions(transcripts = listTranscripts()) {
   if (!existsSync(TRAJECTORY_ROOT)) return []
+  const transcriptsById = new Map(transcripts.map((item) => [basename(item.path, '.jsonl'), item]))
   return readdirSync(TRAJECTORY_ROOT)
     .filter((f) => f.endsWith('.jsonl'))
     .map((f) => {
       const st = statSync(join(TRAJECTORY_ROOT, f))
-      return { id: f.slice(0, -6), mtimeMs: st.mtimeMs, size: st.size }
+      const id = f.slice(0, -6)
+      const transcript = transcriptsById.get(id)
+      const title = (transcript && transcriptTitle(transcript.path, transcript)) || trajectoryFallback(join(TRAJECTORY_ROOT, f), st) || id
+      return { id, title, transcriptPath: transcript?.path ?? null, mtimeMs: st.mtimeMs, size: st.size }
     })
     .sort((a, b) => b.mtimeMs - a.mtimeMs)
 }
 
 function listTranscripts() {
-  const out: Array<{ path: string; rel: string; mtimeMs: number; size: number }> = []
+  const out: TranscriptEntry[] = []
   const walk = (dir, depth) => {
     if (depth > 4 || out.length >= 300) return
     let entries
@@ -77,7 +137,8 @@ function listTranscripts() {
       if (e.isDirectory()) walk(join(dir, e.name), depth + 1)
       else if (e.isFile() && e.name.endsWith('.jsonl')) {
         const st = statSync(join(dir, e.name))
-        out.push({ path: join(dir, e.name), rel: relative(TRANSCRIPT_ROOT, join(dir, e.name)), mtimeMs: st.mtimeMs, size: st.size })
+        const path = join(dir, e.name)
+        out.push({ path, rel: relative(TRANSCRIPT_ROOT, path), mtimeMs: st.mtimeMs, size: st.size })
       }
     }
   }

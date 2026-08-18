@@ -54,7 +54,8 @@ async function loadSessions() {
     for (const it of s) {
       const li = document.createElement('li')
       li.dataset.key = it.id
-      li.innerHTML = '<div>' + esc(it.id) + '</div><div class="t">' + fmtTs(it.mtimeMs) + ' · ' + fmtSize(it.size) + '</div>'
+      li.title = it.id
+      li.innerHTML = '<div>' + esc(it.title || it.id) + '</div><div class="t">' + fmtTs(it.mtimeMs) + ' · ' + fmtSize(it.size) + '</div>'
       li.onclick = () => { select('trajectory', it.id); openTrajectory(it.id) }
       sl.appendChild(li)
     }
@@ -64,7 +65,8 @@ async function loadSessions() {
     for (const it of t) {
       const li = document.createElement('li')
       li.dataset.key = it.path
-      li.innerHTML = '<div>' + esc(it.rel.split('\\').pop()) + '</div><div class="t">' + esc(it.rel) + ' · ' + fmtTs(it.mtimeMs) + '</div>'
+      li.title = it.rel
+      li.innerHTML = '<div>' + esc(it.title || it.rel.split('\\').pop()) + '</div><div class="t">' + esc(it.rel) + ' · ' + fmtTs(it.mtimeMs) + '</div>'
       li.onclick = () => { select('transcript', it.path); openTranscript(it.path) }
       tl.appendChild(li)
     }
@@ -96,7 +98,8 @@ async function openTrajectory(id, options: { followTail?: boolean } = {}) {
   }
   state.transcript = null
   if (state.merge && state.records) {
-    const tp = ((state.records.find((r) => r.transcriptPath) || state.trajectoryMeta || {})).transcriptPath
+    const indexedPath = state.sessions.find((session) => session.id === id)?.transcriptPath
+    const tp = indexedPath || ((state.records.find((r) => r.transcriptPath) || state.trajectoryMeta || {})).transcriptPath
     if (tp) {
       try {
         const transcriptData = await api('/api/transcript?path=' + encodeURIComponent(tp))
@@ -149,6 +152,8 @@ function sameVersion(left, right) {
 
 function activeTranscriptPath() {
   if (state.current?.kind === 'transcript') return state.current.path
+  const indexedPath = state.current?.kind === 'trajectory' && state.sessions.find((session) => session.id === state.current.id)?.transcriptPath
+  if (indexedPath) return indexedPath
   return (state.records?.find((record) => record.transcriptPath) || state.trajectoryMeta || {}).transcriptPath || null
 }
 

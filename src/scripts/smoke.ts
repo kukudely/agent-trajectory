@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // Self-contained smoke test for CI (npm test): demo data -> SQLite projection ->
 // viewer server -> API probes. No Claude Code or external services required.
-import { mkdtempSync, rmSync, appendFileSync, writeFileSync, existsSync, symlinkSync, readFileSync } from 'node:fs'
+import { mkdtempSync, rmSync, appendFileSync, writeFileSync, existsSync, symlinkSync, readFileSync, mkdirSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, dirname, resolve } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
@@ -66,6 +66,13 @@ try {
   assert(linkedVersion === JSON.parse(readFileSync(join(ROOT, 'package.json'), 'utf8')).version, 'CLI did not run through a symlink or junction')
   execFileSync(process.execPath, [join(ROOT, 'dist/scripts/check-release.js')], { stdio: 'inherit' })
   generateDemo('demo')
+  const demoTranscriptDir = join(process.env.TRANSCRIPT_ROOT, 'demo-project')
+  mkdirSync(demoTranscriptDir, { recursive: true })
+  writeFileSync(join(demoTranscriptDir, 'demo.jsonl'), [
+    JSON.stringify({ type: 'user', userType: 'external', promptSource: 'typed', message: { content: 'fallback prompt title' } }),
+    JSON.stringify({ type: 'ai-title', aiTitle: '日期工具重构', sessionId: 'demo' }),
+  ].join('\n') + '\n')
+  appendRecord('empty', { type: 'session-end' })
   const demoRecords = loadTrajectory('demo')
   assert(demoRecords.every((record) => record.schemaVersion === TRAJECTORY_SCHEMA_VERSION), 'schema version missing')
   assert(demoRecords.every((record, index) => record.seq === index + 1), 'demo sequence is not contiguous')
@@ -133,6 +140,11 @@ try {
     await waitFor(() => fetch('http://127.0.0.1:' + port + '/api/sessions').then((r) => r.ok), 10_000)
     const sessions = await (await fetch('http://127.0.0.1:' + port + '/api/sessions')).json()
     assert(Array.isArray(sessions) && sessions.length >= 1, 'sessions list empty')
+    assert(sessions.find((session) => session.id === 'demo')?.title === '日期工具重构', 'session title did not prefer transcript ai-title')
+    assert(sessions.find((session) => session.id === 'demo')?.transcriptPath?.endsWith('demo.jsonl'), 'session transcript index path missing')
+    assert(sessions.find((session) => session.id === 'empty')?.title === '空会话（仅结束记录）', 'empty session fallback title missing')
+    const transcripts = await (await fetch('http://127.0.0.1:' + port + '/api/transcripts')).json()
+    assert(transcripts.some((transcript) => transcript.rel.endsWith('demo.jsonl')), 'transcript list missing demo session')
 
     const traj = await (await fetch('http://127.0.0.1:' + port + '/api/trajectory/demo')).json()
     assert(traj.records && traj.records.length >= 10, 'trajectory records missing')
