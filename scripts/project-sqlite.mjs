@@ -11,7 +11,7 @@
  * The viewer server picks up <trajectory-root>/trajectory.db automatically
  * (/api/stats, /api/search).
  */
-import { readdirSync, readFileSync, existsSync } from 'node:fs'
+import { readdirSync, readFileSync, existsSync, statSync } from 'node:fs'
 import { join } from 'node:path'
 import { TRAJECTORY_ROOT } from '../lib/record.mjs'
 
@@ -39,6 +39,8 @@ if (!DatabaseSync) {
 
 const opts = parseArgs(process.argv.slice(2))
 const db = new DatabaseSync(opts.db)
+const hadFts = !!db.prepare(`SELECT 1 AS found FROM sqlite_master
+  WHERE type='table' AND name='record_fts'`).get()
 db.exec(`
 CREATE TABLE IF NOT EXISTS sessions (
   id TEXT PRIMARY KEY,
@@ -64,14 +66,32 @@ CREATE INDEX IF NOT EXISTS idx_records_session ON records(session_id, seq);
 CREATE INDEX IF NOT EXISTS idx_records_type ON records(type);
 `)
 
+const sessionColumns = new Set(db.prepare('PRAGMA table_info(sessions)').all().map((column) => column.name))
+if (!sessionColumns.has('file_size')) db.exec('ALTER TABLE sessions ADD COLUMN file_size INTEGER')
+if (!sessionColumns.has('file_mtime_ms')) db.exec('ALTER TABLE sessions ADD COLUMN file_mtime_ms REAL')
+
+db.exec(`CREATE VIRTUAL TABLE IF NOT EXISTS record_fts USING fts5(
+  session_id, seq UNINDEXED, type, tool, content, tokenize='unicode61'
+)`)
+
 const insertRec = db.prepare(`INSERT INTO records (session_id, seq, ts, type, tool, tool_use_id, decision, payload)
   VALUES (?, ?, ?, ?, ?, ?, ?, ?)`)
-const insertSess = db.prepare(`INSERT OR REPLACE INTO sessions (id, cwd, model, source, first_ts, last_ts, records)
-  VALUES (?, ?, ?, ?, ?, ?, ?)`)
+const insertFts = db.prepare(`INSERT INTO record_fts (session_id, seq, type, tool, content)
+  VALUES (?, ?, ?, ?, ?)`)
+const insertSess = db.prepare(`INSERT OR REPLACE INTO sessions
+  (id, cwd, model, source, first_ts, last_ts, records, file_size, file_mtime_ms)
+  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+const readSnapshot = db.prepare('SELECT file_size, file_mtime_ms FROM sessions WHERE id = ?')
 
 function importSession(file) {
   const id = file.slice(0, -6)
-  const lines = readFileSync(join(opts.root, file), 'utf8').split('\n').filter(Boolean)
+  const path = join(opts.root, file)
+  const stat = statSync(path)
+  const snapshot = readSnapshot.get(id)
+  if (hadFts && snapshot?.file_size === stat.size && snapshot?.file_mtime_ms === stat.mtimeMs) {
+    return { imported: false, records: 0 }
+  }
+  const lines = readFileSync(path, 'utf8').split('\n').filter(Boolean)
   const recs = lines.map((l) => {
     try {
       return JSON.parse(l)
@@ -79,11 +99,12 @@ function importSession(file) {
       return null
     }
   }).filter(Boolean)
-  if (!recs.length) return 0
+  if (!recs.length) return { imported: false, records: 0 }
 
   db.exec('BEGIN')
   try {
     db.prepare('DELETE FROM records WHERE session_id = ?').run(id)
+    db.prepare('DELETE FROM record_fts WHERE session_id = ?').run(id)
     let firstTs = null
     let lastTs = null
     let meta = {}
@@ -93,15 +114,17 @@ function importSession(file) {
         if (firstTs == null || r.ts < firstTs) firstTs = r.ts
         if (lastTs == null || r.ts > lastTs) lastTs = r.ts
       }
-      insertRec.run(id, r.seq ?? null, r.ts ?? null, r.type ?? 'unknown', r.tool ?? null, r.toolUseId ?? null, r.decision ?? null, JSON.stringify(r))
+      const payload = JSON.stringify(r)
+      insertRec.run(id, r.seq ?? null, r.ts ?? null, r.type ?? 'unknown', r.tool ?? null, r.toolUseId ?? null, r.decision ?? null, payload)
+      insertFts.run(id, r.seq ?? null, r.type ?? 'unknown', r.tool ?? '', payload)
     }
-    insertSess.run(id, meta.cwd ?? null, meta.model ?? null, meta.source ?? null, firstTs, lastTs, recs.length)
+    insertSess.run(id, meta.cwd ?? null, meta.model ?? null, meta.source ?? null, firstTs, lastTs, recs.length, stat.size, stat.mtimeMs)
     db.exec('COMMIT')
   } catch (e) {
     db.exec('ROLLBACK')
     throw e
   }
-  return recs.length
+  return { imported: true, records: recs.length }
 }
 
 function report() {
@@ -136,7 +159,34 @@ if (opts.sql) {
 }
 
 const files = readdirSync(opts.root).filter((f) => f.endsWith('.jsonl'))
+const fileIds = new Set(files.map((file) => file.slice(0, -6)))
+const staleIds = db.prepare('SELECT id FROM sessions').all()
+  .map((row) => row.id)
+  .filter((id) => !fileIds.has(id))
+if (staleIds.length) {
+  db.exec('BEGIN')
+  try {
+    const deleteRecords = db.prepare('DELETE FROM records WHERE session_id = ?')
+    const deleteFts = db.prepare('DELETE FROM record_fts WHERE session_id = ?')
+    const deleteSession = db.prepare('DELETE FROM sessions WHERE id = ?')
+    for (const id of staleIds) {
+      deleteRecords.run(id)
+      deleteFts.run(id)
+      deleteSession.run(id)
+    }
+    db.exec('COMMIT')
+  } catch (error) {
+    db.exec('ROLLBACK')
+    throw error
+  }
+}
 let total = 0
-for (const f of files) total += importSession(f)
-console.log('imported', files.length, 'sessions,', total, 'records ->', opts.db)
+let imported = 0
+for (const f of files) {
+  const result = importSession(f)
+  total += result.records
+  if (result.imported) imported++
+}
+console.log('indexed', imported, 'changed sessions,', total, 'records; skipped', files.length - imported,
+  'unchanged; removed', staleIds.length, 'stale ->', opts.db)
 if (opts.report) report()

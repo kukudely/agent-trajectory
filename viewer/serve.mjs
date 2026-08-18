@@ -124,6 +124,15 @@ function readTranscriptLines(path) {
     .map(sanitizeTranscriptLine)
 }
 
+function transcriptStat(path) {
+  const abs = resolve(path)
+  if (!abs.startsWith(TRANSCRIPT_ROOT + sep) || !abs.endsWith('.jsonl') || !existsSync(abs)) {
+    throw new Error('transcript must live under the Claude Code projects dir')
+  }
+  const stat = statSync(abs)
+  return { mtimeMs: stat.mtimeMs, size: stat.size }
+}
+
 // --- optional SQLite projection (built by scripts/project-sqlite.mjs) ---
 let db = null
 let dbError = null
@@ -155,17 +164,62 @@ const server = createServer(async (req, res) => {
       const id = safeSessionId(decodeURIComponent(url.pathname.slice('/api/trajectory/'.length)))
       const file = join(TRAJECTORY_ROOT, `${id}.jsonl`)
       if (!existsSync(file)) return sendJson(res, 404, { error: `no trajectory for ${id}` })
-      return sendJson(res, 200, { id, records: loadTrajectory(id) })
+      const records = loadTrajectory(id)
+      const stat = statSync(file)
+      const version = { mtimeMs: stat.mtimeMs, size: stat.size }
+      if (!url.searchParams.has('limit')) return sendJson(res, 200, { id, records, version })
+      const limit = Number(url.searchParams.get('limit'))
+      const before = url.searchParams.has('before') ? Number(url.searchParams.get('before')) : null
+      if (!Number.isSafeInteger(limit) || limit < 1 || limit > 500) {
+        return sendJson(res, 400, { error: 'limit must be an integer between 1 and 500' })
+      }
+      if (before != null && (!Number.isSafeInteger(before) || before < 1)) {
+        return sendJson(res, 400, { error: 'before must be a positive integer seq' })
+      }
+      const eligible = before == null ? records : records.filter((record) => record.seq < before)
+      const pageRecords = eligible.slice(-limit)
+      return sendJson(res, 200, {
+        id,
+        records: pageRecords,
+        version,
+        meta: records.find((record) => record.type === 'session') ?? null,
+        page: {
+          total: records.length,
+          hasMore: eligible.length > pageRecords.length,
+          before: pageRecords[0]?.seq ?? null,
+        },
+      })
     }
     if (url.pathname === '/api/transcripts') return sendJson(res, 200, listTranscripts())
     if (url.pathname === '/api/transcript') {
       const p = url.searchParams.get('path')
       if (!p) return sendJson(res, 400, { error: 'missing path' })
       try {
-        return sendJson(res, 200, { lines: readTranscriptLines(p) })
+        return sendJson(res, 200, { lines: readTranscriptLines(p), version: transcriptStat(p) })
       } catch (e) {
         return sendJson(res, 403, { error: e.message })
       }
+    }
+    if (url.pathname === '/api/version') {
+      const idParam = url.searchParams.get('id')
+      const transcriptPath = url.searchParams.get('path')
+      const result = {}
+      if (idParam) {
+        const id = safeSessionId(idParam)
+        const file = join(TRAJECTORY_ROOT, `${id}.jsonl`)
+        if (existsSync(file)) {
+          const stat = statSync(file)
+          result.trajectory = { mtimeMs: stat.mtimeMs, size: stat.size }
+        }
+      }
+      if (transcriptPath) {
+        try {
+          result.transcript = transcriptStat(transcriptPath)
+        } catch (error) {
+          return sendJson(res, 403, { error: error.message })
+        }
+      }
+      return sendJson(res, 200, result)
     }
     if (url.pathname === '/api/stats') {
       const d = await getDb()
@@ -186,11 +240,20 @@ const server = createServer(async (req, res) => {
       if (!q) return sendJson(res, 400, { error: 'missing q' })
       const d = await getDb()
       if (!d) return sendJson(res, 200, { error: dbError })
+      const hasFts = d.prepare(`SELECT 1 AS found FROM sqlite_master
+        WHERE type='table' AND name='record_fts'`).get()
+      if (hasFts) {
+        const phrase = `"${q.replaceAll('"', '""')}"`
+        const rows = d.prepare(`SELECT session_id AS sessionId, seq, type, tool,
+          snippet(record_fts, 4, '', '', '…', 24) AS snippet
+          FROM record_fts WHERE record_fts MATCH ? ORDER BY rank LIMIT 200`).all(phrase)
+        if (rows.length) return sendJson(res, 200, { rows, engine: 'fts5' })
+      }
       const like = '%' + q + '%'
-      const rows = d.prepare(`SELECT session_id AS sessionId, ts, type, tool, substr(payload, 1, 240) AS snippet
+      const rows = d.prepare(`SELECT session_id AS sessionId, seq, ts, type, tool, substr(payload, 1, 240) AS snippet
         FROM records WHERE payload LIKE ? OR session_id LIKE ?
         ORDER BY ts DESC LIMIT 200`).all(like, like)
-      return sendJson(res, 200, { rows })
+      return sendJson(res, 200, { rows, engine: hasFts ? 'like-fallback' : 'like' })
     }
     const rel = url.pathname === '/' ? 'index.html' : url.pathname.slice(1)
     const file = resolve(VIEWER_DIR, rel)

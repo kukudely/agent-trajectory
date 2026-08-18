@@ -7,8 +7,8 @@
 给 Claude Code 的「轨迹」插件：把每次会话记录成可回放的时间线（提示词、工具调用、权限决策、子代理、回合边界、token 用量），并用本地网页查看。
 
 - **采集**：hooks 增量记录 + 官方 transcript 全量回放 + `stream-json` 采集器（路线 B，含 usage）
-- **展示**：零依赖本地 Web 查看器，按 `toolUseId` 合并多数据源渲染时间线
-- **统计**：SQLite 投影（内置 `node:sqlite`），多会话检索与统计
+- **展示**：零依赖本地 Web 查看器，提供 Input/Model/Tools 概览泳道、密集事件列表和 Payload/Result/Timing 详情检查器；按 `toolUseId` 合并多数据源并按时间插入生命周期事件，纯轨迹视图按尾部分页加载
+- **统计**：增量 SQLite 投影（内置 `node:sqlite`），FTS5 多会话检索与统计
 
 ## 原理
 
@@ -63,9 +63,7 @@ npm run setup   # 等价 node scripts/install.mjs：安装到 ~/.claude/plugins/
 
 ## 轨迹记录格式
 
-`~/.claude/trajectories/<sessionId>.jsonl`，每行一条 JSON，含 `seq`（文件内序号）与 `ts`（毫秒时间戳）：
-
-`~/.claude/trajectories/<sessionId>.jsonl`，每行一条 JSON，含 `seq`（文件内序号）与 `ts`（毫秒时间戳）：
+`~/.claude/trajectories/<sessionId>.jsonl`，每行一条 JSON，含 `schemaVersion`、`seq`（从 1 开始的文件内连续序号）与 `ts`（毫秒时间戳）。旧记录没有 `schemaVersion` 也仍可读取：
 
 | type | 来源 hook | 内容 |
 |---|---|---|
@@ -84,6 +82,7 @@ npm run setup   # 等价 node scripts/install.mjs：安装到 ~/.claude/plugins/
 
 - 轨迹目录默认 `~/.claude/trajectories`，可用环境变量 `TRAJECTORY_ROOT` 覆盖（`TRANSCRIPT_ROOT` 同理，供 CI/测试使用）
 - 记录上限：输入 8KB、结果 2KB、提示词 8KB（`lib/record.mjs` 顶部常量）
+- 同一会话使用跨进程锁串行追加，避免并发 hook 产生重复 `seq`；读取时忽略未写完的最后一行，下一次追加会先修复该尾部
 - hook 脚本一律 `exit(0)`、失败只写 `~/.claude/trajectory-errors.log`，绝不阻塞 agent 循环
 
 ## 已知限制
@@ -117,6 +116,7 @@ npm run setup   # 等价 node scripts/install.mjs：安装到 ~/.claude/plugins/
 ```sh
 claude --output-format stream-json -p "任务" | node scripts/collect-stream-json.mjs
 node scripts/collect-stream-json.mjs --file run.log          # 离线回放
+node scripts/collect-stream-json.mjs --file run.log --out D:/trajectories
 ```
 
 写入与 hooks 相同的轨迹格式：`session`（含 model）、`assistant`（文本）、`tool-start`/`tool`（input/result）、`usage`（input/output/cache读/cache写，累计）、`session-end`。查看器直接渲染这些卡片。
@@ -132,7 +132,13 @@ node scripts/project-sqlite.mjs --sql "SELECT session_id, COUNT(*) FROM records 
 
 之后 viewer 自动获得两个能力（默认读 `~/.claude/trajectories/trajectory.db`）：
 - **统计**：侧栏「统计」按钮 → 每会话记录数/时长/提示词/工具/拒绝/子代理 + 高频工具
-- **全局检索**：侧栏搜索框 → 跨会话 LIKE 检索轨迹内容，点结果直接打开对应会话
+- **全局检索**：侧栏搜索框 → 跨会话 FTS5 全文检索，点结果直接打开对应会话
+
+重复执行投影时只重建新增或文件状态发生变化的会话，并清理已删除 JSONL 对应的旧索引。查看器关闭“合并官方 transcript”后，初次只加载最后 200 条轨迹，并可逐页加载更早记录；合并模式为保证 `toolUseId` 跨来源配对准确，仍会读取完整轨迹和 transcript。
+
+查看器每 3 秒检查当前轨迹和 transcript 的文件版本；停留在时间线尾部时自动加载新记录，向上查看历史时暂停自动跟随。“刷新”会同时刷新会话列表和当前时间线。点击事件行或顶部概览色块可在右侧检查 Payload、Result、Schema 和 Timing。`turn-end` 表示一个 Agent 回合结束，`session-end` 才表示整个会话结束。
+
+FTS5 使用 `unicode61` 分词和字面短语查询，优先处理完整词或连续短语；没有 FTS 命中时会自动回退到原有 `LIKE` 子串检索，保留中文长 token 中间子串的召回能力。
 
 ## 记录类型补充
 

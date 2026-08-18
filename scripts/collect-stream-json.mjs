@@ -77,7 +77,7 @@ function main() {
           cwd: ev.cwd ?? '',
           source: 'stream-json',
           model: ev.model,
-        })
+        }, { root: opts.root })
       }
       continue
     }
@@ -89,7 +89,7 @@ function main() {
       const blocks = Array.isArray(msg.content) ? msg.content : []
       const text = blocks.filter((b) => b.type === 'text').map((b) => b.text ?? '').join('\n')
       if (text.trim()) {
-        appendRecord(sessionId, { type: 'assistant', text: truncate(text, LIMIT_TEXT) })
+        appendRecord(sessionId, { type: 'assistant', text: truncate(text, LIMIT_TEXT) }, { root: opts.root })
       }
       for (const b of blocks.filter((b) => b.type === 'tool_use')) {
         appendRecord(sessionId, {
@@ -97,10 +97,10 @@ function main() {
           toolUseId: b.id,
           tool: b.name,
           input: truncate(redact(b.input), LIMIT_INPUT),
-        })
+        }, { root: opts.root })
       }
       const u = usageOf(msg.usage)
-      if (u) emitUsage(sessionId, u, cum, 'message')
+      if (u) emitUsage(sessionId, u, cum, 'message', opts.root)
       continue
     }
 
@@ -113,7 +113,7 @@ function main() {
           toolUseId: b.tool_use_id,
           result: truncate(redact(textOf(b.content)), LIMIT_RESULT),
           isError: !!b.is_error,
-        })
+        }, { root: opts.root })
       }
       continue
     }
@@ -122,15 +122,15 @@ function main() {
       const e = ev.event ?? {}
       if (e.type === 'message_delta') {
         const u = usageOf(e.usage)
-        if (u) emitUsage(sessionId, u, cum, 'delta')
+        if (u) emitUsage(sessionId, u, cum, 'delta', opts.root)
       }
       continue
     }
 
     if (ev.type === 'result') {
-      appendRecord(sessionId, { type: 'session-end', outcome: ev.subtype ?? '' })
+      appendRecord(sessionId, { type: 'session-end', outcome: ev.subtype ?? '' }, { root: opts.root })
       if (ev.subtype && String(ev.subtype).startsWith('error_')) {
-        appendRecord(sessionId, { type: 'turn-end', reason: ev.subtype })
+        appendRecord(sessionId, { type: 'turn-end', reason: ev.subtype }, { root: opts.root })
       }
       continue
     }
@@ -143,11 +143,11 @@ function main() {
   console.log('records appended for', sessionId, 'at', opts.root)
 }
 
-function emitUsage(sessionId, u, cum, kind) {
+function emitUsage(sessionId, u, cum, kind, root) {
   for (const k of Object.keys(cum)) {
     if (u[k] != null) cum[k] += u[k]
   }
-  appendRecord(sessionId, { type: 'usage', kind, ...cum })
+  appendRecord(sessionId, { type: 'usage', kind, ...cum }, { root })
 }
 
 main()
