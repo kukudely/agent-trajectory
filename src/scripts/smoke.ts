@@ -7,7 +7,7 @@ import { join, dirname, resolve } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { spawn, execFileSync } from 'node:child_process'
 
-const ROOT = dirname(dirname(fileURLToPath(import.meta.url)))
+const ROOT = dirname(dirname(dirname(fileURLToPath(import.meta.url))))
 const tmp = mkdtempSync(join(tmpdir(), 'trajectory-smoke-'))
 
 function assert(cond, msg) {
@@ -15,7 +15,7 @@ function assert(cond, msg) {
 }
 
 function runHook(script, payload, env) {
-  return new Promise((resolvePromise, rejectPromise) => {
+  return new Promise<void>((resolvePromise, rejectPromise) => {
     const child = spawn(process.execPath, [script], { stdio: ['pipe', 'ignore', 'pipe'], env })
     let stderr = ''
     child.stderr.on('data', (chunk) => { stderr += chunk })
@@ -46,10 +46,18 @@ try {
   process.env.TRANSCRIPT_ROOT = join(tmp, 'projects')
 
   // 1. demo data
-  const { generateDemo } = await import(pathToFileURL(resolve(join(ROOT, 'scripts/demo.mjs'))).href)
+  const { generateDemo } = await import(pathToFileURL(resolve(join(ROOT, 'dist/scripts/demo.js'))).href)
   const { appendRecord, loadTrajectory, trajectoryPath, truncate, TRAJECTORY_SCHEMA_VERSION } =
-    await import(pathToFileURL(resolve(join(ROOT, 'lib/record.mjs'))).href)
+    await import(pathToFileURL(resolve(join(ROOT, 'dist/lib/record.js'))).href)
+  const { removeLegacyHooks } = await import(pathToFileURL(resolve(join(ROOT, 'dist/scripts/cli.js'))).href)
   assert(truncate(undefined, 20) === '' && truncate(null, 20) === '', 'truncate does not accept missing hook fields')
+  const migrated = removeLegacyHooks({ hooks: { Stop: [{ hooks: [
+    { type: 'command', command: 'node "C:/Users/test/.claude/plugins/agent-trajectory/hooks/stop.mjs"' },
+    { type: 'command', command: 'node keep-me.mjs' },
+  ] }] }, untouched: true })
+  assert(migrated.removed === 1, 'legacy hook migration did not remove the old plugin path')
+  assert(migrated.settings.hooks.Stop[0].hooks[0].command === 'node keep-me.mjs' && migrated.settings.untouched, 'legacy hook migration changed unrelated settings')
+  execFileSync(process.execPath, [join(ROOT, 'dist/scripts/check-release.js')], { stdio: 'inherit' })
   generateDemo('demo')
   const demoRecords = loadTrajectory('demo')
   assert(demoRecords.every((record) => record.schemaVersion === TRAJECTORY_SCHEMA_VERSION), 'schema version missing')
@@ -81,7 +89,7 @@ try {
     JSON.stringify({ type: 'system', subtype: 'init', session_id: 'collector-out', cwd: 'C:/tmp', model: 'test' }),
     JSON.stringify({ type: 'result', subtype: 'success' }),
   ].join('\n') + '\n')
-  execFileSync(process.execPath, [join(ROOT, 'scripts/collect-stream-json.mjs'), '--file', streamFile, '--out', collectorRoot], {
+  execFileSync(process.execPath, [join(ROOT, 'dist/scripts/collect-stream-json.js'), '--file', streamFile, '--out', collectorRoot], {
     stdio: 'inherit',
     env: { ...process.env, TRAJECTORY_ROOT: ignoredRoot },
   })
@@ -92,7 +100,7 @@ try {
   const concurrentRoot = join(tmp, 'concurrent-root')
   const concurrentEnv = { ...process.env, TRAJECTORY_ROOT: concurrentRoot }
   await Promise.all(Array.from({ length: 12 }, (_, index) => runHook(
-    join(ROOT, 'hooks/pre-tool-use.mjs'),
+    join(ROOT, 'dist/hooks/pre-tool-use.js'),
     { session_id: 'concurrent', tool_use_id: `tool-${index}`, tool_name: 'Read', tool_input: { index } },
     concurrentEnv,
   )))
@@ -101,11 +109,11 @@ try {
   assert(concurrent.every((record, index) => record.seq === index + 1), 'concurrent sequence is not contiguous')
 
   // 2. SQLite projection
-  execFileSync(process.execPath, [join(ROOT, 'scripts/project-sqlite.mjs'), '--db', join(tmp, 'trajectory.db')], {
+  execFileSync(process.execPath, [join(ROOT, 'dist/scripts/project-sqlite.js'), '--db', join(tmp, 'trajectory.db')], {
     stdio: 'inherit',
     env: process.env,
   })
-  const unchangedProjection = execFileSync(process.execPath, [join(ROOT, 'scripts/project-sqlite.mjs'), '--db', join(tmp, 'trajectory.db')], {
+  const unchangedProjection = execFileSync(process.execPath, [join(ROOT, 'dist/scripts/project-sqlite.js'), '--db', join(tmp, 'trajectory.db')], {
     encoding: 'utf8',
     env: process.env,
   })
@@ -113,7 +121,7 @@ try {
 
   // 3. viewer server + API probes
   const port = 8900 + Math.floor(Math.random() * 100)
-  const server = spawn(process.execPath, [join(ROOT, 'viewer/serve.mjs'), String(port)], { stdio: 'inherit', env: process.env })
+  const server = spawn(process.execPath, [join(ROOT, 'dist/viewer/serve.js'), String(port)], { stdio: 'inherit', env: process.env })
   try {
     await waitFor(() => fetch('http://127.0.0.1:' + port + '/api/sessions').then((r) => r.ok), 10_000)
     const sessions = await (await fetch('http://127.0.0.1:' + port + '/api/sessions')).json()
@@ -123,6 +131,7 @@ try {
     assert(traj.records && traj.records.length >= 10, 'trajectory records missing')
     assert(traj.version?.mtimeMs && traj.version?.size, 'trajectory version missing')
     const version = await (await fetch('http://127.0.0.1:' + port + '/api/version?id=demo')).json()
+    assert(version.app === 'agent-trajectory', 'viewer identity is missing')
     assert(version.trajectory?.mtimeMs === traj.version.mtimeMs, 'trajectory version endpoint is inconsistent')
 
     const page1 = await (await fetch('http://127.0.0.1:' + port + '/api/trajectory/demo?limit=5')).json()
@@ -157,7 +166,7 @@ try {
 } finally {
   try {
     rmSync(tmp, { recursive: true, force: true, maxRetries: 5, retryDelay: 150 })
-  } catch (e) {
+  } catch (e: any) {
     console.warn('temp cleanup failed (ignored):', e.message)
   }
 }

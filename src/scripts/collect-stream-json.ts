@@ -5,16 +5,16 @@
  * the viewer can render headless runs with assistant text and token telemetry.
  *
  * Usage:
- *   claude --output-format stream-json -p "task" | node scripts/collect-stream-json.mjs
- *   node scripts/collect-stream-json.mjs --file run.log
- *   node scripts/collect-stream-json.mjs --session-id <id> --out <dir>
+ *   claude --output-format stream-json -p "task" | trajectory-collect
+ *   npm run collect -- --file run.log
+ *   npm run collect -- --session-id <id> --out <dir>
  *
  * The --file form reads a previously saved stream-json log; --out overrides
  * the trajectory root. If no --session-id is given, it is taken from the
  * system init event.
  */
 import { readFileSync } from 'node:fs'
-import { redact, truncate, appendRecord, safeSessionId, TRAJECTORY_ROOT } from '../lib/record.mjs'
+import { redact, truncate, appendRecord, safeSessionId, TRAJECTORY_ROOT } from '../lib/record.js'
 
 const LIMIT_TEXT = 30_000
 const LIMIT_INPUT = 8_000
@@ -28,7 +28,7 @@ function parseArgs(argv) {
     else if (a === '--session-id') out.sessionId = argv[++i]
     else if (a === '--out') out.root = argv[++i]
     else if (a === '--help') {
-      console.log('usage: node scripts/collect-stream-json.mjs [--file <log>] [--session-id <id>] [--out <dir>]')
+      console.log('usage: npm run collect -- [--file <log>] [--session-id <id>] [--out <dir>]')
       process.exit(0)
     }
   }
@@ -43,7 +43,7 @@ function textOf(content) {
 
 function usageOf(u) {
   if (!u || typeof u !== 'object') return null
-  const out = {}
+  const out: Record<string, number> = {}
   if (u.input_tokens != null) out.inputTokens = u.input_tokens
   if (u.output_tokens != null) out.outputTokens = u.output_tokens
   if (u.cache_read_input_tokens != null) out.cacheReadInputTokens = u.cache_read_input_tokens

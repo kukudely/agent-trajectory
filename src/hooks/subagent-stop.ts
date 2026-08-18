@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // SubagentStop hook: record subagent completion.
-import { runHook, truncate, LIMIT_RESULT } from '../lib/record.mjs'
+import { runHook, truncate, LIMIT_RESULT } from '../lib/record.js'
 
 runHook('subagent-stop', (p) => ({
   type: 'subagent-end',

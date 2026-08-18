@@ -2,7 +2,7 @@
 /**
  * Zero-dependency local server for the trajectory viewer.
  *
- *   node viewer/serve.mjs [port]          (default 8611)
+ *   node dist/viewer/serve.js [port]      (default 8611)
  *
  * Routes:
  *   /                        viewer/index.html
@@ -12,8 +12,10 @@
  *   /api/transcript?path=    parsed lines of one official transcript
  */
 import { createServer } from 'node:http'
+import type { DatabaseSync } from 'node:sqlite'
 import { readFileSync, existsSync, readdirSync, statSync } from 'node:fs'
-import { join, extname, resolve, relative, sep } from 'node:path'
+import { dirname, join, extname, resolve, relative, sep } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import {
   TRAJECTORY_ROOT,
   TRANSCRIPT_ROOT,
@@ -22,10 +24,10 @@ import {
   truncate,
   PLUGIN_ROOT,
   safeSessionId,
-} from '../lib/record.mjs'
+} from '../lib/record.js'
 
 const PORT = Number(process.argv[2] || process.env.PORT || 8611)
-const VIEWER_DIR = join(PLUGIN_ROOT, 'viewer')
+const VIEWER_DIR = dirname(fileURLToPath(import.meta.url))
 const MIME = {
   '.html': 'text/html; charset=utf-8',
   '.js': 'text/javascript; charset=utf-8',
@@ -62,7 +64,7 @@ function listTrajectorySessions() {
 }
 
 function listTranscripts() {
-  const out = []
+  const out: Array<{ path: string; rel: string; mtimeMs: number; size: number }> = []
   const walk = (dir, depth) => {
     if (depth > 4 || out.length >= 300) return
     let entries
@@ -133,9 +135,9 @@ function transcriptStat(path) {
   return { mtimeMs: stat.mtimeMs, size: stat.size }
 }
 
-// --- optional SQLite projection (built by scripts/project-sqlite.mjs) ---
-let db = null
-let dbError = null
+// --- optional SQLite projection (built by trajectory project) ---
+let db: DatabaseSync | null = null
+let dbError: string | null = null
 async function getDb() {
   if (db) return db
   const { DatabaseSync } = await import('node:sqlite').catch(() => ({ DatabaseSync: null }))
@@ -145,7 +147,7 @@ async function getDb() {
   }
   const file = join(TRAJECTORY_ROOT, 'trajectory.db')
   if (!existsSync(file)) {
-    dbError = 'no trajectory.db — run: node scripts/project-sqlite.mjs'
+    dbError = 'no trajectory.db — run: trajectory project'
     return null
   }
   try {
@@ -196,14 +198,14 @@ const server = createServer(async (req, res) => {
       if (!p) return sendJson(res, 400, { error: 'missing path' })
       try {
         return sendJson(res, 200, { lines: readTranscriptLines(p), version: transcriptStat(p) })
-      } catch (e) {
+      } catch (e: any) {
         return sendJson(res, 403, { error: e.message })
       }
     }
     if (url.pathname === '/api/version') {
       const idParam = url.searchParams.get('id')
       const transcriptPath = url.searchParams.get('path')
-      const result = {}
+      const result: { app: string; trajectory?: unknown; transcript?: unknown } = { app: 'agent-trajectory' }
       if (idParam) {
         const id = safeSessionId(idParam)
         const file = join(TRAJECTORY_ROOT, `${id}.jsonl`)
@@ -215,7 +217,7 @@ const server = createServer(async (req, res) => {
       if (transcriptPath) {
         try {
           result.transcript = transcriptStat(transcriptPath)
-        } catch (error) {
+        } catch (error: any) {
           return sendJson(res, 403, { error: error.message })
         }
       }
@@ -260,7 +262,7 @@ const server = createServer(async (req, res) => {
     if (!file.startsWith(VIEWER_DIR + sep)) return sendText(res, 403, 'forbidden')
     if (!existsSync(file) || statSync(file).isDirectory()) return sendText(res, 404, 'not found')
     sendText(res, 200, readFileSync(file), MIME[extname(file).toLowerCase()] ?? 'application/octet-stream')
-  } catch (err) {
+  } catch (err: any) {
     sendJson(res, 500, { error: String(err?.message ?? err) })
   }
 })

@@ -16,7 +16,7 @@
 import { readFileSync, existsSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
-import { readStdinJson, redact, truncate, appendRecord, safeSessionId } from '../lib/record.mjs'
+import { readStdinJson, redact, truncate, appendRecord, safeSessionId } from '../lib/record.js'
 
 const CONFIG_PATH = process.env.TRAJECTORY_POLICY || join(homedir(), '.claude', 'trajectory-policy.json')
 

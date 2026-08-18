@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // SubagentStart hook: record subagent spawn.
-import { runHook } from '../lib/record.mjs'
+import { runHook } from '../lib/record.js'
 
 runHook('subagent-start', (p) => ({
   type: 'subagent-start',

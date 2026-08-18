@@ -3,7 +3,7 @@
 // NOTE: an observer cannot see "denied"/"asked" tools — only a hook that
 // actually decides (exit 2 / exit 1) can. This recorder always allows; see
 // README "记录权限决策" for a policy-hook variant.
-import { runHook, redact, truncate, LIMIT_INPUT } from '../lib/record.mjs'
+import { runHook, redact, truncate, LIMIT_INPUT } from '../lib/record.js'
 
 runHook('pre-tool-use', (p) => ({
   type: 'tool-start',

@@ -1,9 +1,22 @@
 {
   "name": "agent-trajectory",
-  "version": "0.2.0",
+  "version": "0.4.0",
   "description": "Record every Claude Code session as a replayable trajectory timeline (prompts, tool calls, permissions, subagents, token usage) and view it in a local web UI.",
   "type": "module",
   "license": "MIT",
+  "author": "kukudely",
+  "homepage": "https://github.com/kukudely/agent-trajectory#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/kukudely/agent-trajectory.git"
+  },
+  "bugs": {
+    "url": "https://github.com/kukudely/agent-trajectory/issues"
+  },
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org"
+  },
   "engines": {
     "node": ">=22.13"
   },
@@ -18,28 +31,38 @@
     "claude-code-plugin"
   ],
   "bin": {
-    "trajectory-viewer": "viewer/serve.mjs",
-    "trajectory-demo": "scripts/demo.mjs",
-    "trajectory-install": "scripts/install.mjs",
-    "trajectory-project": "scripts/project-sqlite.mjs"
+    "agent-trajectory": "dist/scripts/cli.js",
+    "trajectory": "dist/scripts/cli.js",
+    "trajectory-viewer": "dist/viewer/serve.js",
+    "trajectory-demo": "dist/scripts/demo.js",
+    "trajectory-collect": "dist/scripts/collect-stream-json.js",
+    "trajectory-render": "dist/scripts/render-transcript.js",
+    "trajectory-install": "dist/scripts/install.js",
+    "trajectory-project": "dist/scripts/project-sqlite.js"
   },
   "scripts": {
-    "demo": "node scripts/demo.mjs",
-    "serve": "node viewer/serve.mjs",
-    "setup": "node scripts/install.mjs",
-    "render": "node scripts/render-transcript.mjs",
-    "collect": "node scripts/collect-stream-json.mjs",
-    "project": "node scripts/project-sqlite.mjs --report",
-    "test": "node scripts/smoke.mjs"
+    "clean": "node -e \"require('fs').rmSync('dist',{recursive:true,force:true})\"",
+    "build": "npm run clean --silent && tsc -p tsconfig.json && node dist/scripts/copy-static.js",
+    "demo": "npm run build --silent && node dist/scripts/demo.js",
+    "serve": "npm run build --silent && node dist/viewer/serve.js",
+    "setup": "npm run build --silent && node dist/scripts/cli.js install",
+    "render": "npm run build --silent && node dist/scripts/render-transcript.js",
+    "collect": "npm run build --silent && node dist/scripts/collect-stream-json.js",
+    "project": "npm run build --silent && node dist/scripts/project-sqlite.js --report",
+    "test": "npm run build --silent && node dist/scripts/smoke.js",
+    "validate": "npm run build --silent && node dist/scripts/check-release.js && claude plugin validate .",
+    "prepack": "npm run build --silent && node dist/scripts/check-release.js"
   },
   "files": [
-    "hooks",
-    "lib",
-    "viewer",
-    "scripts",
-    "plugin.json",
+    "dist",
+    "hooks/hooks.json",
+    ".claude-plugin",
     "trajectory-policy.example.json",
     "README.md",
     "LICENSE"
-  ]
+  ],
+  "devDependencies": {
+    "@types/node": "^24.13.3",
+    "typescript": "^7.0.2"
+  }
 }

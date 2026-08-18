@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // SessionStart hook: record session metadata.
-import { runHook, truncate } from '../lib/record.mjs'
+import { runHook, truncate } from '../lib/record.js'
 
 runHook('session-start', (p) => ({
   type: 'session',

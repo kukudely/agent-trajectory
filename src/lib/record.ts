@@ -37,6 +37,8 @@ const LOCK_TIMEOUT_MS = 5_000
 const LOCK_STALE_MS = 30_000
 const sleepCell = new Int32Array(new SharedArrayBuffer(4))
 
+type RecordOptions = { root?: string }
+
 /** Read and parse the JSON hook payload from stdin (tolerant of empty input). */
 export function readStdinJson() {
   const raw = readFileSync(0, 'utf8').trim()
@@ -46,12 +48,12 @@ export function readStdinJson() {
 const SECRET_KEY = /(^|_)(key|keys|token|secret|password|passwd|authorization|auth|credential|api[_-]?key|cookie|session)(_|$)/i
 
 /** Mask values whose object key smells like a credential, recursively. */
-export function redact(value, seen = new Set()) {
+export function redact(value, seen = new Set<any>()) {
   if (value === null || typeof value !== 'object') return value
   if (seen.has(value)) return '[circular]'
   seen.add(value)
   if (Array.isArray(value)) return value.map((v) => redact(v, seen))
-  const out = {}
+  const out: Record<string, any> = {}
   for (const [k, v] of Object.entries(value)) {
     out[k] = SECRET_KEY.test(k) ? '***' : redact(v, seen)
   }
@@ -88,14 +90,14 @@ function acquireSessionLock(file) {
           try { unlinkSync(lock) } catch { /* already removed */ }
         }
       }
-    } catch (err) {
+    } catch (err: any) {
       if (err?.code !== 'EEXIST') throw err
       try {
         if (Date.now() - statSync(lock).mtimeMs > LOCK_STALE_MS) {
           unlinkSync(lock)
           continue
         }
-      } catch (statErr) {
+      } catch (statErr: any) {
         if (statErr?.code === 'ENOENT') continue
         throw statErr
       }
@@ -112,7 +114,7 @@ function acquireSessionLock(file) {
 function parseTrajectoryText(text) {
   const lines = text.split('\n')
   const lastNonEmpty = lines.findLastIndex((line) => line.trim())
-  const records = []
+  const records: any[] = []
   for (let i = 0; i <= lastNonEmpty; i++) {
     const line = lines[i]
     if (!line.trim()) continue
@@ -134,7 +136,7 @@ function parseTrajectoryText(text) {
 }
 
 /** Append one trajectory record with a cross-process per-session lock. */
-export function appendRecord(sessionId, rec, options = {}) {
+export function appendRecord(sessionId, rec, options: RecordOptions = {}) {
   const root = options.root || TRAJECTORY_ROOT
   const file = trajectoryPath(sessionId, root)
   mkdirSync(root, { recursive: true })
@@ -162,7 +164,7 @@ export function appendRecord(sessionId, rec, options = {}) {
 }
 
 /** Parse a trajectory log back into records (used by the viewer server). */
-export function loadTrajectory(sessionId, options = {}) {
+export function loadTrajectory(sessionId, options: RecordOptions = {}) {
   const file = trajectoryPath(sessionId, options.root || TRAJECTORY_ROOT)
   if (!existsSync(file)) return []
   return parseTrajectoryText(readFileSync(file, 'utf8')).records
@@ -183,7 +185,7 @@ export function runHook(name, build) {
     const payload = readStdinJson()
     const rec = build(payload)
     if (rec && payload.session_id) appendRecord(safeSessionId(payload.session_id), rec)
-  } catch (err) {
+  } catch (err: any) {
     try {
       mkdirSync(TRAJECTORY_ROOT, { recursive: true })
       appendFileSync(join(TRAJECTORY_ROOT, '..', 'trajectory-errors.log'), `${new Date().toISOString()} [${name}] ${err?.stack ?? err}\n`)
@@ -195,4 +197,4 @@ export function runHook(name, build) {
 }
 
 /** Root of this plugin checkout (used by the viewer server and install script). */
-export const PLUGIN_ROOT = dirname(dirname(fileURLToPath(import.meta.url)))
+export const PLUGIN_ROOT = dirname(dirname(dirname(fileURLToPath(import.meta.url))))

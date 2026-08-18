@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // Stop hook: record the end of an agent turn.
-import { runHook, truncate, LIMIT_RESULT } from '../lib/record.mjs'
+import { runHook, truncate, LIMIT_RESULT } from '../lib/record.js'
 
 runHook('stop', (p) => ({
   type: 'turn-end',

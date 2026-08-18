@@ -2,7 +2,7 @@
 /**
  * Render an official Claude Code transcript JSONL to a standalone HTML timeline.
  *
- *   node scripts/render-transcript.mjs <transcript.jsonl> [out.html]
+ *   npm run render -- <transcript.jsonl> [out.html]
  *
  * With no out.html, the HTML is printed to stdout.
  * Useful when you do not want to install the plugin at all.
@@ -12,7 +12,7 @@ import { basename } from 'node:path'
 
 const [file, out] = process.argv.slice(2)
 if (!file) {
-  console.error('usage: node scripts/render-transcript.mjs <transcript.jsonl> [out.html]')
+  console.error('usage: npm run render -- <transcript.jsonl> [out.html]')
   process.exit(1)
 }
 
@@ -28,7 +28,8 @@ const lines = readFileSync(file, 'utf8')
   })
   .filter(Boolean)
 
-const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]))
+const HTML_ESCAPES: Record<string, string> = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }
+const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => HTML_ESCAPES[c])
 const textOf = (content) => {
   if (typeof content === 'string') return content
   if (Array.isArray(content)) return content.map((b) => (b && b.text != null ? b.text : '')).join('\n')
@@ -44,12 +45,12 @@ const jsonPre = (v) => {
 }
 
 // Full tool results, keyed by tool use id, attached after the pass below.
-const results = new Map()
+const results = new Map<string, any>()
 for (const line of lines) {
   if (line.type === 'tool_result') results.set(line.tool_use_id, { text: textOf(line.content), isError: line.is_error })
 }
 
-const items = []
+const items: any[] = []
 for (const line of lines) {
   if (line.type === 'system') {
     if (line.subtype === 'init') items.push({ kind: 'system', text: Array.isArray(line.content) ? line.content.join('') : '' })

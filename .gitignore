@@ -1,5 +1,6 @@
 # runtime / generated
 .demo-data/
+dist/
 trajectory.db
 *.log
 

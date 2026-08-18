@@ -1,0 +1,25 @@
+{
+  "name": "agent-trajectory",
+  "description": "Claude Code trajectory recording and local inspection tools.",
+  "owner": {
+    "name": "kukudely"
+  },
+  "plugins": [
+    {
+      "name": "agent-trajectory",
+      "source": "./",
+      "description": "Record Claude Code sessions as replayable trajectories and inspect them in a local web viewer.",
+      "version": "0.4.0",
+      "homepage": "https://github.com/kukudely/agent-trajectory",
+      "repository": "https://github.com/kukudely/agent-trajectory",
+      "license": "MIT",
+      "keywords": [
+        "trajectory",
+        "telemetry",
+        "hooks",
+        "observability"
+      ],
+      "category": "Developer Tools"
+    }
+  ]
+}

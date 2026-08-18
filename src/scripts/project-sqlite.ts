@@ -3,17 +3,17 @@
  * Project trajectory logs into SQLite for multi-session search and stats.
  * Uses the built-in node:sqlite module (Node >= 22.13).
  *
- *   node scripts/project-sqlite.mjs                       # import + summary
- *   node scripts/project-sqlite.mjs --report              # import + full tables
- *   node scripts/project-sqlite.mjs --sql "SELECT ..."    # raw query
- *   node scripts/project-sqlite.mjs --db <path> --trajectory-root <dir>
+ *   trajectory-project                                   # import + summary
+ *   npm run project                                      # import + full tables
+ *   trajectory-project --sql "SELECT ..."                # raw query
+ *   trajectory-project --db <path> --trajectory-root <dir>
  *
  * The viewer server picks up <trajectory-root>/trajectory.db automatically
  * (/api/stats, /api/search).
  */
 import { readdirSync, readFileSync, existsSync, statSync } from 'node:fs'
 import { join } from 'node:path'
-import { TRAJECTORY_ROOT } from '../lib/record.mjs'
+import { TRAJECTORY_ROOT } from '../lib/record.js'
 
 function parseArgs(argv) {
   const out = { db: join(TRAJECTORY_ROOT, 'trajectory.db'), root: TRAJECTORY_ROOT, report: false, sql: null }
@@ -24,18 +24,19 @@ function parseArgs(argv) {
     else if (a === '--report') out.report = true
     else if (a === '--sql') out.sql = argv[++i]
     else if (a === '--help') {
-      console.log('usage: node scripts/project-sqlite.mjs [--db <path>] [--trajectory-root <dir>] [--report] [--sql <query>]')
+      console.log('usage: trajectory-project [--db <path>] [--trajectory-root <dir>] [--report] [--sql <query>]')
       process.exit(0)
     }
   }
   return out
 }
 
-const { DatabaseSync } = await import('node:sqlite').catch(() => ({}))
-if (!DatabaseSync) {
+const sqlite = await import('node:sqlite').catch(() => null)
+if (!sqlite) {
   console.error('node:sqlite is unavailable — requires Node >= 22.13')
   process.exit(1)
 }
+const { DatabaseSync } = sqlite
 
 const opts = parseArgs(process.argv.slice(2))
 const db = new DatabaseSync(opts.db)
@@ -107,7 +108,7 @@ function importSession(file) {
     db.prepare('DELETE FROM record_fts WHERE session_id = ?').run(id)
     let firstTs = null
     let lastTs = null
-    let meta = {}
+    let meta: Record<string, any> = {}
     for (const r of recs) {
       if (r.type === 'session') meta = r
       if (r.ts != null) {
@@ -161,7 +162,7 @@ if (opts.sql) {
 const files = readdirSync(opts.root).filter((f) => f.endsWith('.jsonl'))
 const fileIds = new Set(files.map((file) => file.slice(0, -6)))
 const staleIds = db.prepare('SELECT id FROM sessions').all()
-  .map((row) => row.id)
+  .map((row) => String(row.id))
   .filter((id) => !fileIds.has(id))
 if (staleIds.length) {
   db.exec('BEGIN')

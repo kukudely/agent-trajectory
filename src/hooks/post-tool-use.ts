@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // PostToolUse hook: record tool completion with a result preview.
-import { runHook, redact, truncate, LIMIT_INPUT, LIMIT_RESULT } from '../lib/record.mjs'
+import { runHook, redact, truncate, LIMIT_INPUT, LIMIT_RESULT } from '../lib/record.js'
 
 runHook('post-tool-use', (p) => ({
   type: 'tool',

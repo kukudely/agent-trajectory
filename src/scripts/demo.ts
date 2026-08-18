@@ -1,10 +1,10 @@
 #!/usr/bin/env node
 // Generate a realistic sample trajectory so the viewer can be tried without a real session.
-//   node scripts/demo.mjs
+//   npm run demo
 // Importable (generateDemo) so the CI smoke test can reuse it.
 import { resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
-import { appendRecord, TRAJECTORY_ROOT } from '../lib/record.mjs'
+import { appendRecord, TRAJECTORY_ROOT } from '../lib/record.js'
 
 /** Append a realistic sample trajectory for one session. */
 export function generateDemo(id = 'demo') {
@@ -31,5 +31,5 @@ const isMain = process.argv[1] && import.meta.url === pathToFileURL(resolve(proc
 if (isMain) {
   generateDemo()
   console.log('demo trajectory written to', TRAJECTORY_ROOT + '/demo.jsonl')
-  console.log('now run: node viewer/serve.mjs  (then open http://127.0.0.1:8611)')
+  console.log('now run: trajectory start')
 }

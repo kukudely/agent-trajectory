@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // UserPromptSubmit hook: record each user prompt.
-import { runHook, truncate, LIMIT_PROMPT } from '../lib/record.mjs'
+import { runHook, truncate, LIMIT_PROMPT } from '../lib/record.js'
 
 runHook('user-prompt-submit', (p) => ({
   type: 'user',
