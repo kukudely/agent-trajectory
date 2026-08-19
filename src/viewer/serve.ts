@@ -25,6 +25,7 @@ import {
   PLUGIN_ROOT,
   safeSessionId,
 } from '../lib/record.js'
+import { codexSessionStat, listCodexSessions, readCodexTrajectory } from '../lib/codex.js'
 
 const PORT = Number(process.argv[2] || process.env.PORT || 8611)
 const VIEWER_DIR = dirname(fileURLToPath(import.meta.url))
@@ -223,6 +224,13 @@ const server = createServer(async (req, res) => {
   const url = new URL(req.url ?? '/', 'http://127.0.0.1')
   try {
     if (url.pathname === '/api/sessions') return sendJson(res, 200, listTrajectorySessions())
+    if (url.pathname === '/api/codex/sessions') return sendJson(res, 200, listCodexSessions())
+    if (url.pathname.startsWith('/api/codex/trajectory/')) {
+      const id = safeSessionId(decodeURIComponent(url.pathname.slice('/api/codex/trajectory/'.length)))
+      const trajectory = readCodexTrajectory(id)
+      if (!trajectory) return sendJson(res, 404, { error: `no Codex rollout for ${id}` })
+      return sendJson(res, 200, trajectory)
+    }
     if (url.pathname.startsWith('/api/trajectory/')) {
       const id = safeSessionId(decodeURIComponent(url.pathname.slice('/api/trajectory/'.length)))
       const file = join(TRAJECTORY_ROOT, `${id}.jsonl`)
@@ -265,8 +273,9 @@ const server = createServer(async (req, res) => {
     }
     if (url.pathname === '/api/version') {
       const idParam = url.searchParams.get('id')
+      const codexId = url.searchParams.get('codexId')
       const transcriptPath = url.searchParams.get('path')
-      const result: { app: string; trajectory?: unknown; transcript?: unknown } = { app: 'agent-trajectory' }
+      const result: { app: string; trajectory?: unknown; transcript?: unknown; codex?: unknown } = { app: 'agent-trajectory' }
       if (idParam) {
         const id = safeSessionId(idParam)
         const file = join(TRAJECTORY_ROOT, `${id}.jsonl`)
@@ -282,6 +291,7 @@ const server = createServer(async (req, res) => {
           return sendJson(res, 403, { error: error.message })
         }
       }
+      if (codexId) result.codex = codexSessionStat(safeSessionId(codexId))
       return sendJson(res, 200, result)
     }
     if (url.pathname === '/api/stats') {

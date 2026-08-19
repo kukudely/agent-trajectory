@@ -1,6 +1,6 @@
 const $ = (id: string): any => document.getElementById(id)
 const state: any = {
-  sessions: [], transcripts: [], current: null, records: null, transcript: null,
+  sessions: [], transcripts: [], codexSessions: [], current: null, records: null, transcript: null,
   trajectoryMeta: null, trajectoryVersion: null, transcriptVersion: null,
   merge: true, search: '', page: null, refreshInFlight: false,
   selectedKey: null, selectedItem: null, inspectorTab: 'summary',
@@ -35,7 +35,7 @@ async function api(path) {
 }
 
 function select(kind, key) {
-  const lists = [['sessionList', 'trajectory'], ['transcriptList', 'transcript']]
+  const lists = [['sessionList', 'trajectory'], ['transcriptList', 'transcript'], ['codexSessionList', 'codex']]
   for (const [listId, k] of lists) {
     for (const li of $(listId).children) {
       li.classList.toggle('active', k === kind && li.dataset.key === String(key))
@@ -45,9 +45,10 @@ function select(kind, key) {
 
 async function loadSessions() {
   try {
-    const [s, t] = await Promise.all([api('/api/sessions'), api('/api/transcripts')])
+    const [s, t, c] = await Promise.all([api('/api/sessions'), api('/api/transcripts'), api('/api/codex/sessions')])
     state.sessions = s
     state.transcripts = t
+    state.codexSessions = c
     const sl = $('sessionList')
     sl.innerHTML = ''
     if (!s.length) sl.innerHTML = '<li class="hint">暂无轨迹。先运行 <code>npm run demo</code>，或用 hooks 跑一个真实会话。</li>'
@@ -70,9 +71,39 @@ async function loadSessions() {
       li.onclick = () => { select('transcript', it.path); openTranscript(it.path) }
       tl.appendChild(li)
     }
+    const cl = $('codexSessionList')
+    cl.innerHTML = ''
+    if (!c.length) cl.innerHTML = '<li class="hint">未找到 Codex rollout 文件。</li>'
+    for (const it of c) {
+      const li = document.createElement('li')
+      li.dataset.key = it.id
+      li.title = it.id + '\n' + it.rel
+      li.innerHTML = '<div>' + esc(it.title || it.id) + '</div><div class="t">' + (it.archived ? '已归档 · ' : '') + fmtTs(it.mtimeMs) + ' · ' + fmtSize(it.size) + '</div>'
+      li.onclick = () => { select('codex', it.id); openCodexTrajectory(it.id) }
+      cl.appendChild(li)
+    }
   } catch (e) {
     console.error('loadSessions failed', e)
   }
+}
+
+async function openCodexTrajectory(id, options: { followTail?: boolean } = {}) {
+  const timeline = $('timeline')
+  const wasNearTail = timeline.scrollHeight - timeline.clientHeight - timeline.scrollTop < 120
+  if (state.current?.kind !== 'codex' || state.current.id !== id) {
+    state.selectedKey = null
+    state.selectedItem = null
+  }
+  state.current = { kind: 'codex', id }
+  state.transcript = null
+  state.transcriptVersion = null
+  state.page = null
+  const data = await api('/api/codex/trajectory/' + encodeURIComponent(id))
+  state.records = data.records
+  state.trajectoryMeta = data.meta || null
+  state.trajectoryVersion = data.version || null
+  render()
+  if (options.followTail || wasNearTail) timeline.scrollTop = timeline.scrollHeight
 }
 
 async function openTrajectory(id, options: { followTail?: boolean } = {}) {
@@ -163,6 +194,8 @@ async function refreshCurrent(options: { followTail?: boolean } = {}) {
   try {
     if (state.current.kind === 'trajectory') {
       await openTrajectory(state.current.id, { followTail: options.followTail !== false })
+    } else if (state.current.kind === 'codex') {
+      await openCodexTrajectory(state.current.id, { followTail: options.followTail !== false })
     } else {
       await openTranscript(state.current.path)
       if (options.followTail !== false) $('timeline').scrollTop = $('timeline').scrollHeight
@@ -179,14 +212,16 @@ async function pollCurrentVersion() {
   if (!nearTail) return
   const params = new URLSearchParams()
   if (state.current.kind === 'trajectory') params.set('id', state.current.id)
+  if (state.current.kind === 'codex') params.set('codexId', state.current.id)
   const transcriptPath = state.merge ? activeTranscriptPath() : null
   if (transcriptPath) params.set('path', transcriptPath)
   if (![...params].length) return
   try {
     const versions = await api('/api/version?' + params)
     const trajectoryChanged = versions.trajectory && !sameVersion(versions.trajectory, state.trajectoryVersion)
+    const codexChanged = versions.codex && !sameVersion(versions.codex, state.trajectoryVersion)
     const transcriptChanged = versions.transcript && !sameVersion(versions.transcript, state.transcriptVersion)
-    if (trajectoryChanged || transcriptChanged) await refreshCurrent({ followTail: true })
+    if (trajectoryChanged || codexChanged || transcriptChanged) await refreshCurrent({ followTail: true })
   } catch (error) {
     console.error('pollCurrentVersion failed', error)
   }
@@ -655,6 +690,7 @@ $('inspectorClose').addEventListener('click', () => {
 $('merge').addEventListener('change', (e) => {
   state.merge = e.target.checked
   if (state.current && state.current.kind === 'trajectory') openTrajectory(state.current.id)
+  else if (state.current && state.current.kind === 'codex') openCodexTrajectory(state.current.id)
   else render()
 })
 $('refresh').addEventListener('click', async () => {

@@ -44,6 +44,10 @@ async function waitFor(fn, timeoutMs) {
 try {
   process.env.TRAJECTORY_ROOT = tmp
   process.env.TRANSCRIPT_ROOT = join(tmp, 'projects')
+  process.env.CODEX_HOME = join(tmp, 'codex')
+  process.env.CODEX_SESSIONS_ROOT = join(process.env.CODEX_HOME, 'sessions')
+  process.env.CODEX_ARCHIVED_ROOT = join(process.env.CODEX_HOME, 'archived_sessions')
+  process.env.CODEX_SESSION_INDEX = join(process.env.CODEX_HOME, 'session_index.jsonl')
 
   // 1. demo data
   const { generateDemo } = await import(pathToFileURL(resolve(join(ROOT, 'dist/scripts/demo.js'))).href)
@@ -72,6 +76,19 @@ try {
     JSON.stringify({ type: 'user', userType: 'external', promptSource: 'typed', message: { content: 'fallback prompt title' } }),
     JSON.stringify({ type: 'ai-title', aiTitle: '日期工具重构', sessionId: 'demo' }),
   ].join('\n') + '\n')
+  const codexId = '01900000-0000-7000-8000-000000000001'
+  const codexSessionDir = join(process.env.CODEX_SESSIONS_ROOT, '2026', '08', '19')
+  mkdirSync(codexSessionDir, { recursive: true })
+  mkdirSync(process.env.CODEX_HOME, { recursive: true })
+  writeFileSync(process.env.CODEX_SESSION_INDEX, JSON.stringify({ id: codexId, thread_name: 'Codex 轨迹测试', updated_at: '2026-08-19T01:00:00Z' }) + '\n')
+  writeFileSync(join(codexSessionDir, `rollout-2026-08-19T09-00-00-${codexId}.jsonl`), [
+    { timestamp: '2026-08-19T01:00:00Z', type: 'session_meta', payload: { id: codexId, cwd: 'C:/projects/codex-demo', model_provider: 'openai' } },
+    { timestamp: '2026-08-19T01:00:01Z', type: 'response_item', payload: { type: 'message', role: 'user', content: [{ type: 'input_text', text: '检查 Codex 轨迹' }] } },
+    { timestamp: '2026-08-19T01:00:02Z', type: 'response_item', payload: { type: 'custom_tool_call', call_id: 'call-1', name: 'exec_command', input: '{"cmd":"npm test"}' } },
+    { timestamp: '2026-08-19T01:00:03Z', type: 'response_item', payload: { type: 'custom_tool_call_output', call_id: 'call-1', output: 'ok' } },
+    { timestamp: '2026-08-19T01:00:04Z', type: 'response_item', payload: { type: 'message', role: 'assistant', content: [{ type: 'output_text', text: '检查完成' }] } },
+    { timestamp: '2026-08-19T01:00:05Z', type: 'event_msg', payload: { type: 'task_complete', last_agent_message: '检查完成' } },
+  ].map((row) => JSON.stringify(row)).join('\n') + '\n')
   appendRecord('empty', { type: 'session-end' })
   const demoRecords = loadTrajectory('demo')
   assert(demoRecords.every((record) => record.schemaVersion === TRAJECTORY_SCHEMA_VERSION), 'schema version missing')
@@ -145,6 +162,13 @@ try {
     assert(sessions.find((session) => session.id === 'empty')?.title === '空会话（仅结束记录）', 'empty session fallback title missing')
     const transcripts = await (await fetch('http://127.0.0.1:' + port + '/api/transcripts')).json()
     assert(transcripts.some((transcript) => transcript.rel.endsWith('demo.jsonl')), 'transcript list missing demo session')
+    const codexSessions = await (await fetch('http://127.0.0.1:' + port + '/api/codex/sessions')).json()
+    assert(codexSessions.find((session) => session.id === codexId)?.title === 'Codex 轨迹测试', 'Codex session index title missing')
+    const codexTrajectory = await (await fetch('http://127.0.0.1:' + port + '/api/codex/trajectory/' + codexId)).json()
+    assert(codexTrajectory.records.some((record) => record.type === 'tool' && record.tool === 'exec_command'), 'Codex tool call was not normalized')
+    assert(codexTrajectory.records.some((record) => record.type === 'turn-end'), 'Codex turn boundary missing')
+    const codexVersion = await (await fetch('http://127.0.0.1:' + port + '/api/version?codexId=' + codexId)).json()
+    assert(codexVersion.codex?.size === codexTrajectory.version.size, 'Codex version endpoint is inconsistent')
 
     const traj = await (await fetch('http://127.0.0.1:' + port + '/api/trajectory/demo')).json()
     assert(traj.records && traj.records.length >= 10, 'trajectory records missing')

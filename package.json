@@ -1,7 +1,7 @@
 {
   "name": "agent-trajectory",
   "version": "0.4.1",
-  "description": "Record every Claude Code session as a replayable trajectory timeline (prompts, tool calls, permissions, subagents, token usage) and view it in a local web UI.",
+  "description": "Inspect Codex and Claude Code sessions as replayable trajectory timelines in a local web UI.",
   "type": "module",
   "license": "MIT",
   "author": "kukudely",
@@ -28,7 +28,9 @@
     "hooks",
     "session",
     "trace",
-    "claude-code-plugin"
+    "claude-code-plugin",
+    "codex",
+    "codex-plugin"
   ],
   "bin": {
     "agent-trajectory": "dist/scripts/cli.js",
@@ -57,6 +59,8 @@
     "dist",
     "hooks/hooks.json",
     ".claude-plugin",
+    ".agents/plugins/marketplace.json",
+    "plugins/agent-trajectory",
     "trajectory-policy.example.json",
     "README.md",
     "LICENSE"

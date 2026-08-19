@@ -15,6 +15,7 @@ import { delimiter, join, resolve } from 'node:path'
 import { spawn, spawnSync } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
 import { PLUGIN_ROOT } from '../lib/record.js'
+import { CODEX_ROOT } from '../lib/codex.js'
 
 const PACKAGE = JSON.parse(readFileSync(join(PLUGIN_ROOT, 'package.json'), 'utf8'))
 const MARKETPLACE = 'agent-trajectory'
@@ -57,6 +58,39 @@ function claudeInvocation() {
     if (existsSync(npmCli)) return (cachedClaudeInvocation = { command: process.execPath, prefix: [npmCli] })
   }
   fail('Claude Code CLI was not found on PATH')
+}
+
+let cachedCodexInvocation: { command: string; prefix: string[] } | null = null
+function codexInvocation() {
+  if (cachedCodexInvocation) return cachedCodexInvocation
+  if (process.platform !== 'win32') return { command: 'codex', prefix: [] }
+  for (const dir of String(process.env.PATH || '').split(delimiter).filter(Boolean)) {
+    const native = join(dir, 'codex.exe')
+    if (existsSync(native)) return (cachedCodexInvocation = { command: native, prefix: [] })
+    const npmCli = join(dir, 'node_modules', '@openai', 'codex', 'bin', 'codex.js')
+    if (existsSync(npmCli)) return (cachedCodexInvocation = { command: process.execPath, prefix: [npmCli] })
+  }
+  fail('Codex CLI was not found on PATH')
+}
+
+function runCodex(args: string[], capture = false) {
+  const invocation = codexInvocation()
+  const result = spawnSync(invocation.command, [...invocation.prefix, ...args], {
+    encoding: 'utf8',
+    stdio: capture ? ['ignore', 'pipe', 'pipe'] : 'inherit',
+    windowsHide: true,
+    maxBuffer: 16 * 1024 * 1024,
+  })
+  if (result.error) fail(`cannot run Codex CLI: ${result.error.message}`)
+  if (result.status !== 0) {
+    const detail = capture ? (result.stderr || result.stdout || '').trim() : ''
+    fail(`codex ${args.join(' ')} failed${detail ? `: ${detail}` : ''}`)
+  }
+  return result
+}
+
+function codexJson(args: string[], label: string): any {
+  return parseJsonOutput(runCodex(args, true).stdout, label)
 }
 
 type ClaudeRunOptions = { capture?: boolean; allowFailure?: boolean; cwd?: string }
@@ -303,6 +337,28 @@ function installPlugin() {
   output('restart Claude Code or run /reload-plugins in an active session')
 }
 
+function installCodexPlugin() {
+  const marketplaces = codexJson(['plugin', 'marketplace', 'list', '--json'], 'Codex marketplace list')?.marketplaces || []
+  const marketplace = marketplaces.find((item) => item.name === MARKETPLACE)
+  if (marketplace) runCodex(['plugin', 'marketplace', 'upgrade', MARKETPLACE])
+  else runCodex(['plugin', 'marketplace', 'add', PLUGIN_ROOT])
+  const plugins = codexJson(['plugin', 'list', '--available', '--json'], 'Codex plugin list')
+  const plugin = [...(plugins.available || []), ...(plugins.installed || [])]
+    .find((item) => item.pluginId === PLUGIN_ID || (item.name === 'agent-trajectory' && item.marketplaceName === MARKETPLACE))
+  if (!plugin) fail(`Codex marketplace does not expose ${PLUGIN_ID}`)
+  if (!plugin.installed) runCodex(['plugin', 'add', PLUGIN_ID])
+  output(`Codex plugin installed: ${PLUGIN_ID}`)
+  output('restart Codex to load the trajectory skill')
+}
+
+function uninstallCodexPlugin() {
+  const plugins = codexJson(['plugin', 'list', '--json'], 'Codex plugin list')
+  const plugin = (plugins.installed || []).find((item) => item.pluginId === PLUGIN_ID)
+  if (plugin) runCodex(['plugin', 'remove', PLUGIN_ID])
+  else output('Codex plugin is not installed')
+  output('Codex rollout data was not changed')
+}
+
 function updatePlugin() {
   runClaude(['plugin', 'validate', PLUGIN_ROOT])
   ensureMarketplace()
@@ -327,21 +383,38 @@ async function showStatus(args) {
   let plugin: any = null
   let marketplace: any = null
   try { marketplace = marketplaceEntry(); plugin = installedPlugin() } catch { /* doctor reports CLI issues */ }
+  let codexPlugin: any = null
+  try {
+    const plugins = codexJson(['plugin', 'list', '--json'], 'Codex plugin list')
+    codexPlugin = (plugins.installed || []).find((item) => item.pluginId === PLUGIN_ID) || null
+  } catch { /* Codex is optional */ }
   const state = readViewerState()
   const health = await viewerHealth(port)
   output(`package:     ${PACKAGE.name}@${PACKAGE.version}`)
   output(`marketplace: ${marketplace ? 'installed' : 'not installed'}`)
   output(`plugin:      ${plugin ? `${plugin.enabled ? 'enabled' : 'disabled'} (${plugin.version}, ${plugin.scope})` : 'not installed'}`)
+  output(`Codex plugin:${codexPlugin ? ` enabled (${codexPlugin.version})` : ' not installed'}`)
   output(`viewer:      ${health ? `running at http://127.0.0.1:${port}` : 'stopped'}`)
   if (state) output(`viewer pid:  ${state.pid}${pidAlive(state.pid) ? '' : ' (stale)'}`)
   output(`data:        ${process.env.TRAJECTORY_ROOT || join(CLAUDE_CONFIG, 'trajectories')}`)
+  output(`Codex data:  ${CODEX_ROOT}`)
 }
 
 async function doctor(args) {
   output(`Node: ${process.version}`)
-  const claudeVersion = runClaude(['--version'], { capture: true })
-  output(`Claude Code: ${claudeVersion.stdout.trim()}`)
-  runClaude(['plugin', 'validate', PLUGIN_ROOT])
+  try {
+    const claudeVersion = runClaude(['--version'], { capture: true })
+    output(`Claude Code: ${claudeVersion.stdout.trim()}`)
+    runClaude(['plugin', 'validate', PLUGIN_ROOT])
+  } catch (error: any) {
+    output(`Claude Code: unavailable (${error.message})`)
+  }
+  try {
+    const codexVersion = runCodex(['--version'], true)
+    output(`Codex: ${codexVersion.stdout.trim()}`)
+  } catch (error: any) {
+    output(`Codex: unavailable (${error.message})`)
+  }
   await showStatus(args)
 }
 
@@ -352,8 +425,10 @@ Usage: trajectory <command> [options]
 
 Commands:
   install                 Validate and install the Claude Code plugin
+  install-codex           Install the Codex plugin and trajectory skill
   update                  Refresh the marketplace and plugin
   uninstall               Uninstall the plugin (keeps trajectory data)
+  uninstall-codex         Uninstall the Codex plugin (keeps rollout data)
   start [--port N]        Start Viewer in background and open the browser
   serve [--port N]        Run Viewer in the foreground
   stop                    Stop a Viewer started by trajectory
@@ -375,8 +450,10 @@ export async function main(args = process.argv.slice(2)) {
   if (!command || command === 'help' || args.includes('--help') || args.includes('-h')) return help()
   if (command === '--version' || command === '-v' || command === 'version') return output(PACKAGE.version)
   if (command === 'install') return installPlugin()
+  if (command === 'install-codex') return installCodexPlugin()
   if (command === 'update') return updatePlugin()
   if (command === 'uninstall') return uninstallPlugin(rest)
+  if (command === 'uninstall-codex') return uninstallCodexPlugin()
   if (command === 'start') return startViewer(rest)
   if (command === 'serve') return serveViewer(rest)
   if (command === 'stop') return stopViewer(rest)

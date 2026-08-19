@@ -1,0 +1,20 @@
+{
+  "name": "agent-trajectory",
+  "interface": {
+    "displayName": "Agent Trajectory"
+  },
+  "plugins": [
+    {
+      "name": "agent-trajectory",
+      "source": {
+        "source": "local",
+        "path": "./plugins/agent-trajectory"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Developer Tools"
+    }
+  ]
+}

@@ -4,15 +4,17 @@
 [![Node](https://img.shields.io/badge/node-%3E%3D22.13-green)](package.json)
 [![CI](https://github.com/kukudely/agent-trajectory/actions/workflows/ci.yml/badge.svg)](https://github.com/kukudely/agent-trajectory/actions)
 
-给 Claude Code 的「轨迹」插件：把每次会话记录成可回放的时间线（提示词、工具调用、权限决策、子代理、回合边界、token 用量），并用本地网页查看。
+Codex 与 Claude Code 的本地「轨迹」查看器：把会话呈现为可回放时间线（提示词、工具调用、回合边界等），并提供调用详情检查器。
 
-- **采集**：hooks 增量记录 + 官方 transcript 全量回放 + `stream-json` 采集器（路线 B，含 usage）
+- **Codex**：直接只读 `~/.codex/sessions`、`archived_sessions` 与 `session_index.jsonl`，不重复采集、不安装会话 hook
+- **Claude Code**：hooks 增量记录 + 官方 transcript 全量回放 + `stream-json` 采集器（路线 B，含 usage）
 - **展示**：零依赖本地 Web 查看器，提供 Input/Model/Tools 概览泳道、密集事件列表和 Payload/Result/Timing 详情检查器；按 `toolUseId` 合并多数据源并按时间插入生命周期事件，纯轨迹视图按尾部分页加载
 - **统计**：增量 SQLite 投影（内置 `node:sqlite`），FTS5 多会话检索与统计
 
 ## 原理
 
 - **采集**：Claude Code 官方 transcript（`~/.claude/projects/**/*.jsonl`）已覆盖 user / assistant / tool_use / tool_result；hooks 补充生命周期与增量信息，追加到 `~/.claude/trajectories/<sessionId>.jsonl`
+- **Codex 适配**：读取 Codex 原生 `rollout-*.jsonl`，将 message、custom/function tool call、tool output 和 task boundary 归一化为 Viewer 的轨迹记录；会话标题优先使用 `session_index.jsonl`
 - **投影/展示**：`src/viewer/serve.ts` + `src/viewer/app.ts` + `viewer/index.html` 把轨迹与官方 transcript 按 `toolUseId` 合并渲染成时间线
 
 ## 目录结构
@@ -23,6 +25,8 @@ agent-trajectory/
 │   ├── plugin.json             # Claude Code 官方插件清单
 │   └── marketplace.json        # npm 安装后供 CLI 注册的本地 Marketplace
 ├── hooks/hooks.json            # Claude Code hook 声明（指向 dist/hooks）
+├── .agents/plugins/             # Codex 本地 Marketplace 清单
+├── plugins/agent-trajectory/    # Codex 插件清单与 trajectory skill
 ├── src/                        # TypeScript 源码
 │   ├── hooks/                  #   8 个记录 hook + 1 个可选策略 hook
 │   ├── lib/record.ts           #   stdin、redact、截断、并发安全 JSONL 追加
@@ -42,6 +46,7 @@ agent-trajectory/
 ```powershell
 npm install -g agent-trajectory
 trajectory install             # 注册 Marketplace，并安装到 Claude Code user scope
+trajectory install-codex       # 注册并安装 Codex 插件/skill（Codex 数据无需安装也能读取）
 trajectory start               # 后台启动 Viewer，并打开 http://127.0.0.1:8611
 ```
 
@@ -58,6 +63,7 @@ npx agent-trajectory start
 
 ```text
 trajectory install                 安装或更新 Claude Code 插件，并迁移旧版重复 Hook
+trajectory install-codex           安装 Codex 插件与 trajectory skill
 trajectory update                  更新 Marketplace 与插件缓存
 trajectory start [--port 8611]     后台启动并打开 Viewer
 trajectory start --no-open         只启动，不打开浏览器
@@ -66,6 +72,7 @@ trajectory stop                    停止由 trajectory start 管理的 Viewer
 trajectory status                  查看包、插件、Viewer 和数据目录状态
 trajectory doctor                  检查 Node、Claude CLI、Manifest 和运行状态
 trajectory uninstall               卸载插件，保留轨迹数据
+trajectory uninstall-codex         卸载 Codex 插件，保留 Codex rollout 数据
 ```
 
 ### 从源码开发
@@ -83,7 +90,7 @@ npm run validate
 
 ### 发布到 npm（维护者）
 
-`package.json` 的 `publishConfig` 已固定到公共 npm registry，避免本机公司镜像接管发布。发布前必须同步 `package.json`、`.claude-plugin/plugin.json` 和 `.claude-plugin/marketplace.json` 的版本；`prepack` 会自动阻止版本不一致的包：
+`package.json` 的 `publishConfig` 已固定到公共 npm registry，避免本机公司镜像接管发布。发布前必须同步 npm、Claude Code 与 Codex 插件清单版本；`prepack` 会自动阻止版本不一致的包：
 
 ```powershell
 npm test
@@ -125,6 +132,7 @@ npm run setup   # 源码模式下等价于 trajectory install
 ## 配置
 
 - 轨迹目录默认 `~/.claude/trajectories`，可用环境变量 `TRAJECTORY_ROOT` 覆盖（`TRANSCRIPT_ROOT` 同理，供 CI/测试使用）
+- Codex 根目录默认 `~/.codex`，遵循 `CODEX_HOME`；测试或特殊部署可分别使用 `CODEX_SESSIONS_ROOT`、`CODEX_ARCHIVED_ROOT` 和 `CODEX_SESSION_INDEX` 覆盖
 - 记录上限：输入 8KB、结果 2KB、提示词 8KB（`src/lib/record.ts` 顶部常量）
 - 同一会话使用跨进程锁串行追加，避免并发 hook 产生重复 `seq`；读取时忽略未写完的最后一行，下一次追加会先修复该尾部
 - hook 脚本一律 `exit(0)`、失败只写 `~/.claude/trajectory-errors.log`，绝不阻塞 agent 循环
@@ -133,6 +141,7 @@ npm run setup   # 源码模式下等价于 trajectory install
 
 - **看不到「被拒绝」的工具**：PreToolUse 的 deny/ask 由 hook 的退出码决定，纯观察者无法得知。要记录权限决策需另写真正做决策的 hook（见下节）
 - **官方 transcript schema 不是稳定 API**：字段可能随版本变化，查看器对未知类型宽容跳过
+- **Codex rollout schema 可能演进**：当前适配 message、custom/function tool call/output、task_complete 与 turn_aborted；未知事件会被安全跳过
 - **拿不到**：reasoning 内容、精确 token 用量、KV cache 状态（hooks 层面不存在）；需要这些请走 stream-json 或 Agent SDK 路线（见「更进一步」）
 - **Claude Code 版本**：npm 安装器依赖 `claude plugin` CLI；旧版本若没有该命令，请先升级 Claude Code
 - **Windows**：hook 命令经 shell 执行，绝对路径写法最稳；脚本用 `os.homedir()`，不依赖 `$HOME`

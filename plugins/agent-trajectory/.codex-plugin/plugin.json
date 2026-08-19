@@ -1,0 +1,28 @@
+{
+  "name": "agent-trajectory",
+  "version": "0.4.1",
+  "description": "Inspect Codex rollout sessions and Claude Code trajectories in a local web viewer.",
+  "author": {
+    "name": "kukudely",
+    "url": "https://github.com/kukudely"
+  },
+  "homepage": "https://github.com/kukudely/agent-trajectory",
+  "repository": "https://github.com/kukudely/agent-trajectory",
+  "license": "MIT",
+  "keywords": ["codex", "trajectory", "trace", "observability"],
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "Agent Trajectory",
+    "shortDescription": "Open and inspect local Codex session trajectories.",
+    "longDescription": "Reads Codex rollout JSONL files and Claude Code trajectories in a local, replayable timeline with tool-call details.",
+    "developerName": "kukudely",
+    "category": "Developer Tools",
+    "capabilities": ["Read", "Interactive"],
+    "websiteURL": "https://github.com/kukudely/agent-trajectory",
+    "defaultPrompt": [
+      "Open my local trajectory viewer.",
+      "Help me inspect the latest Codex session trajectory."
+    ],
+    "brandColor": "#8061D2"
+  }
+}

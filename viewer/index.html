@@ -108,7 +108,7 @@ code, .mono { font-family:ui-monospace, Consolas, "Cascadia Code", monospace; }
 <header class="app-header">
   <div class="brand"><span class="brand-mark">T</span>Trajectory</div>
   <div class="header-actions">
-    <label><input type="checkbox" id="merge" checked /> 合并官方 transcript</label>
+    <label><input type="checkbox" id="merge" checked /> 合并 Claude transcript</label>
     <button id="refresh">刷新</button>
   </div>
 </header>
@@ -123,9 +123,11 @@ code, .mono { font-family:ui-monospace, Consolas, "Cascadia Code", monospace; }
       <div id="statsBody"></div>
     </details>
     <ul id="searchResults" hidden></ul>
-    <h2>轨迹会话（hooks / stream-json 记录）</h2>
+    <h2>Codex 会话（~/.codex/sessions）</h2>
+    <ul id="codexSessionList"></ul>
+    <h2>Claude 轨迹（hooks / stream-json）</h2>
     <ul id="sessionList"></ul>
-    <h2>官方 transcript（~/.claude/projects）</h2>
+    <h2>Claude transcript（~/.claude/projects）</h2>
     <ul id="transcriptList"></ul>
   </aside>
   <section class="trajectory-shell">
